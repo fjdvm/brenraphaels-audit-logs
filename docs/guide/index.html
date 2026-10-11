@@ -89,6 +89,31 @@ const SECTIONS = [
     ['<span class="status s4">400</span>','Malformed JSON body','<code>{"error":"Invalid request body"}</code>'],
     ['<span class="status s4">413</span>','Body over 16 KB (1600 KB for batch)','<code>{"error":"Invalid request body"}</code>'],
     ['<span class="status s5">500</span>','Unexpected failure','<code>{"error":"Internal server error"}</code>']]}] },
+{ id:'mcp', title:'Use it from an agent (MCP)', role:'none', intro:
+  `An MCP server wraps these endpoints as tools, so any MCP-capable agent can search, read and write Audit Events without hand-written HTTP. It runs over stdio from a checkout of the repository (Node 24 or later, <code>npm ci</code> once) and calls this service with your keys, so roles, validation and rate limits are unchanged. Errors come back as <code>HTTP &lt;status&gt;: &lt;body&gt;</code>. Details in <code>docs/mcp.md</code>.`,
+  tables:[{ title:'Environment variables', head:['Variable','Required','Enables'], rows:[
+    ['<code>AUDIT_LOGS_URL</code>','yes','The base URL of this service'],
+    ['<code>AUDIT_LOGS_ADMIN_KEY</code>','one key at least','<code>read:admin</code> tools: <code>get_valid_values</code>, <code>search_events</code>, <code>get_event</code>, <code>event_stats</code>, <code>export_events</code>'],
+    ['<code>AUDIT_LOGS_CUSTOMER_KEY</code>','','<code>read:customer</code> tool: <code>get_customer_activity</code>'],
+    ['<code>AUDIT_LOGS_WRITE_KEY</code>','','<code>write:&lt;Source&gt;</code> tools: <code>write_event</code>, <code>write_events_batch</code>']]},
+  { title:'Good to know', narrow:true, head:['Topic','Note'], rows:[
+    ['Least privilege','Only the tools whose key is set are exposed. Give an agent a read key for exploration: a write key lets it append events that can never be edited or deleted.'],
+    ['Export','<code>export_events</code> returns the file as text and records an <code>audit_log.exported</code> event under <code>requested_by_*</code>, so call it only for a real Administrator.'],
+    ['Customer activity','<code>subject_id</code> must come from the Customer’s own session, never from user input.']]}],
+  example:`# Claude Code
+claude mcp add audit-logs -e AUDIT_LOGS_URL=$BASE_URL -e AUDIT_LOGS_ADMIN_KEY=$ADMIN_KEY -- npm run --silent mcp --prefix /path/to/audit-logs
+
+# Any other MCP client (mcpServers config)
+{
+  "mcpServers": {
+    "audit-logs": {
+      "command": "npm",
+      "args": ["run", "--silent", "mcp"],
+      "cwd": "/path/to/audit-logs",
+      "env": { "AUDIT_LOGS_URL": "$BASE_URL", "AUDIT_LOGS_ADMIN_KEY": "<read:admin key>" }
+    }
+  }
+}` },
 { id:'write', title:'Write an Audit Event', method:'POST', path:'/events', role:'write', intro:'Key must be <code>write:&lt;Source&gt;</code> matching the body’s <code>source</code>. Unknown fields (including <code>recorded_at</code>), NUL characters and malformed Unicode return 400.',
   tables:[{ title:'Body', head:['Field','Required','Notes'], rows:[
     ['<code>source</code>','yes','CRMS, HRMS, POS, IMS, Authentication, File storage, Notifications or Ecommerce'],

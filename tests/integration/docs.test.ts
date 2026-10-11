@@ -16,3 +16,9 @@ test('serves the team guide without an API key', async () => {
 test('keeps the Audit Event routes behind keys', async () => {
   expect((await request(app).get('/events')).status).toBe(401);
 });
+
+test('documents how to use the MCP server', async () => {
+  const response = await request(app).get('/docs');
+  expect(response.text).toContain("id:'mcp'");
+  expect(response.text).toContain('AUDIT_LOGS_ADMIN_KEY');
+});
