@@ -4,7 +4,7 @@ Requires Node 24 or later. Run `npm ci`, copy `.env.example` to `.env` and fill 
 
 Run `npm run db:migrate` once on a fresh database. The migration creates the tables and the two restricted login roles. As owner, assign each role a strong password using your database provider's secure tooling, then set the runtime and anonymization URLs with those credentials. Existing databases/roles are deliberately rejected rather than silently reusing unknown grants. To upgrade a database already running migration 0001, apply `migrations/0002_write_contract.sql` once as the database owner (for example, with `psql "$DATABASE_URL_MIGRATIONS" -v ON_ERROR_STOP=1 -1 -f migrations/0002_write_contract.sql`). Keep the owner credentials out of the deployed runtime environment.
 
-`npm run key -- create write:Authentication` and `npm run key -- create read:admin` print a new random plaintext key once. Only its SHA-256 hash is persisted; store the plaintext securely at creation. `npm run key -- revoke <sha256-hash>` revokes it. Run operator commands with the owner connection, never the runtime role.
+`npm run key -- create write:Authentication` and `npm run key -- create read:admin` print a new random plaintext key once. Only its SHA-256 hash is persisted; store the plaintext securely at creation. `npm run key -- revoke <sha256-hash>` revokes it; the very next request with that key returns 401. `npm run key -- rotate <sha256-hash>` prints a replacement key with the same scope once (storing only its hash) and revokes the old key; add `--overlap` to keep the old key working until you revoke it. Revoking and rotating only change `api_keys` and never touch Audit Events. Run operator commands with the owner connection, never the runtime role.
 
 Start with `npm run dev`, or `npm run build` then `npm start`; these load `.env`. Authenticate with `Authorization: Bearer <key>`.
 
@@ -45,7 +45,17 @@ A successful batch returns 201 with `{ "events": [{ "id": "<uuid>" }, ...] }` in
 
 `GET /events/:id` requires `read:admin` and returns the fields above plus `id` and `recorded_at`; absent optional fields are null. Returns 404 for an unknown event, 400 for invalid input/Action/id, 401 for missing/unknown/revoked keys, 403 for the wrong scope and 413 for bodies over 16 KB. No update or delete endpoint exists.
 
-For tests, use the existing Neon connections in `.env` (see `AGENTS.md`); set `TEST_DATABASE_URL` from `DATABASE_URL_MIGRATIONS` and `TEST_DATABASE_URL_RUNTIME` from `DATABASE_URL` when dedicated test URLs are unset. Set `TEST_DATABASE_URL_ANONYMIZE` from `DATABASE_URL_ANONYMIZE` when the owner cannot `SET ROLE`. Run `npm test -- --testTimeout=120000 --hookTimeout=30000` (or `node --env-file=.env node_modules/vitest/vitest.mjs run --testTimeout=120000 --hookTimeout=30000`) with those test URLs exported; the longer timeout accommodates Neon network latency. Tests call Express in-process against real Postgres and create events/keys; they do not clean or delete history. Search/export, Customer reads and the anonymization job are separate work.
+For tests, use the existing Neon connections in `.env` (see `AGENTS.md`); set `TEST_DATABASE_URL` from `DATABASE_URL_MIGRATIONS` and `TEST_DATABASE_URL_RUNTIME` from `DATABASE_URL` when dedicated test URLs are unset. Set `TEST_DATABASE_URL_ANONYMIZE` from `DATABASE_URL_ANONYMIZE` when the owner cannot `SET ROLE`. Run `npm test -- --testTimeout=120000 --hookTimeout=30000` (or `node --env-file=.env node_modules/vitest/vitest.mjs run --testTimeout=120000 --hookTimeout=30000`) with those test URLs exported; the longer timeout accommodates Neon network latency. Tests call Express in-process against real Postgres and create events/keys; they do not clean or delete history. The anonymization job (`src/jobs/anonymize-customer/`) is invoked directly, not over HTTP; its tests run it and read events back through the API.
+
+## Deployment (Vercel + Neon)
+
+The service runs as a Vercel Function (the Express app in `src/server.ts`) against the Neon project. Set the connection strings in the Vercel project environment (production and preview), never in the repo:
+
+- `DATABASE_URL`: pooled `audit_runtime` URL. The only database credential the deployed API needs.
+- `DATABASE_URL_MIGRATIONS`: owner URL. Use it from an operator machine for `npm run db:migrate` and `npm run key`; do not set it on Vercel.
+- `DATABASE_URL_ANONYMIZE`: `audit_anonymize` URL for the separate anonymization job; do not set it on the API deployment.
+
+Check a deployment with `BASE_URL=https://<deployment> WRITE_KEY=<write:Authentication key> ADMIN_KEY=<read:admin key> npm run smoke`. It writes one Audit Event and reads it back with the admin key. Create the keys with `npm run key`, and revoke them afterwards.
 
 ## Administrator list and filter values
 
@@ -53,12 +63,34 @@ For tests, use the existing Neon connections in `.env` (see `AGENTS.md`); set `T
 
 Events are ordered by `occurred_at DESC`, then `recorded_at DESC`, then `id DESC`. The opaque cursor preserves all three ordering fields. Pass the returned `next_cursor` as `cursor` and keep the same filters while paging. Pages are live reads, not a snapshot across concurrent insertions. `limit` defaults to 50 and accepts integers from 1 to 100.
 
-Optional exact-match filters: `source`, `module`, `action`, `actor_type`, `actor_id`, `subject_type`, `subject_id`, `outcome` (`success` or `failure`). Identity is the `(type, id)` pair; pass both to identify a specific Actor or Subject. Filters combine with AND. `from` and `to` are inclusive ISO 8601 bounds with a timezone on `occurred_at`; either can be omitted. Unknown catalog values produce an empty result. Invalid queries, reversed date ranges, and malformed cursors return 400.
+Optional exact-match filters: `source`, `module`, `action`, `actor_type`, `actor_id`, `subject_type`, `subject_id`, `outcome` (`success` or `failure`). Identity is the `(type, id)` pair; pass both to identify a specific Actor or Subject. Filters combine with AND. `from` and `to` are inclusive ISO 8601 bounds with a timezone on `occurred_at`; either can be omitted. Unknown catalog values produce an empty result. Optional `q` is a case-insensitive substring search (1–200 characters after trimming; `%`, `_` and `\` match literally) over `description` and the Actor and Subject display names, so a portal Username finds events where that person is Actor or Subject. It combines with the filters and cursor pagination. Invalid queries, reversed date ranges, and malformed cursors return 400.
 
 Example: `GET /events?source=CRMS&module=Tickets&outcome=failure&from=2025-01-01T00:00:00Z&limit=25`.
+
+`GET /events/stats?group_by=<day|source|action|outcome>` requires `read:admin` and returns `{ "group_by": "...", "buckets": [{ "key": "...", "count": 12 }, ...] }` for the Administrator charts. It accepts the same filters as `GET /events` (including `q`, `from` and `to`) but no `cursor`; `group_by` is required. `day` buckets are UTC dates (`YYYY-MM-DD`) in ascending order and omit days with no events; `source`, `action` and `outcome` buckets are ordered by count descending, then key. `limit` (1–100, default 10) caps the top Actions and is ignored for the other groupings. For repeated failed logins use `group_by=day&outcome=failure&source=Authentication&action=user.login`. Invalid parameters return 400; other scopes get 403.
 
 `GET /events/valid-values` requires `read:admin` and returns `{ "sources": [{ "source": "CRMS", "modules": [...], "actions": [...] }, ...] }` for all eight Sources, including Sources with no events. Sources without Modules return an empty array. Sources and Actions use the same catalog as write validation; Modules list the portal’s seeded names. Writes continue to accept any nonempty Module for the four business Sources.
 
 Write keys and `read:customer` keys receive 403 on both endpoints. No PUT, PATCH or DELETE route exists.
 
 On a database with the write-contract migration applied, run `npm run db:migrate -- 0003_administrator_list.sql` with the owner connection to add the pagination index. On a fresh database, `npm run db:migrate` applies all three migrations. Migrations are one-time operations; record which ones have run before applying them.
+
+## Customer activity read
+
+`GET /events/customer-activity` requires `read:customer` (the Ecommerce backend's key); admin and write keys receive 403. `subject_type` and `subject_id` are both required: a query without a Subject returns 400. The only other parameters are `limit` (1–100, default 50) and `cursor`; any other parameter returns 400, so no filter can reach another Customer's events.
+
+Returns `{ "events": [...], "next_cursor": "..." }` for that Subject's Audit Events that have a `customer_description`; events without one never appear. Each event has only `id`, `source`, `action`, `outcome`, `customer_description` and `occurred_at`. Actor (including staff names), IP address, user agent, Target, metadata and the admin `description` are never returned. Ordering and cursor paging match the Administrator list; a cursor only pages within the queried Subject's own events.
+
+## Export
+
+`GET /events/export` requires `read:admin`; `read:customer` and write keys receive 403. It streams the Audit Events matching the same filters as `GET /events` (`source`, `module`, `action`, `actor_type`, `actor_id`, `subject_type`, `subject_id`, `outcome`, `q`), newest first, as a download. There is no `limit` or `cursor`.
+
+Required parameters, otherwise 400 with a message naming them:
+
+- `format`: `csv` or `json`. CSV has a header row and one flat row per event (Actor, Target and Subject split into `_type`, `_id` and `_display_name` columns). JSON is `{ "events": [...] }` with the same event objects as the list.
+- `from` and `to`: inclusive ISO 8601 bounds on `occurred_at`; `from` must not follow `to`.
+- `requested_by_id` and `requested_by_name`: the portal Administrator asking. Keys carry no identity, so the caller supplies it and it is recorded as the Actor of the export event.
+
+An export matching more than 50,000 events is refused with 413 and a message giving the matching count; narrow the date range or filters. Nothing is streamed and no event is written.
+
+Every accepted export first records an `audit_log.exported` Audit Event (Source Authentication, Actor from `requested_by_*`, Target `audit_log`) whose `metadata` holds `format`, `row_count` and the `filters` used, including `from` and `to`. The export covers events recorded up to the moment the request is accepted, so the export event and anything written during the stream are not in it, and a later list may show them. If streaming fails partway the connection is aborted rather than ended cleanly, but the export event is already recorded. CSV cells that begin with `=`, `+`, `-`, `@`, a tab or a carriage return get a leading `'` so spreadsheets do not run them as formulas; JSON values are verbatim.

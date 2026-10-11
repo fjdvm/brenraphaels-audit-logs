@@ -2,11 +2,12 @@ import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import request from 'supertest';
 import { Pool } from 'pg';
 import { createApp } from '../../src/http/app.ts';
-import { createKey, revokeKey } from '../../src/api-keys/keys.ts';
+import { createKey, hashKey, revokeKey, rotateKey } from '../../src/api-keys/keys.ts';
 
 const owner = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
 const runtime = new Pool({ connectionString: process.env.TEST_DATABASE_URL_RUNTIME });
 const app = createApp(runtime, { rateLimitPerSecond: 1000 });
+const clockSkewMs = 2000;
 let writeKey: string;
 let readKey: string;
 const event = {
@@ -37,7 +38,6 @@ test('Authentication writes an Audit Event and an Administrator reads every fiel
 
 test('missing, unknown and revoked keys cannot write or read Audit Events', async () => {
   const revoked = await createKey(owner, 'write:Authentication');
-  const { hashKey } = await import('../../src/api-keys/keys.ts');
   await revokeKey(owner, hashKey(revoked));
   for (const key of [undefined, 'unknown-key', revoked]) {
     const write = request(app).post('/events');
@@ -70,7 +70,6 @@ test('runtime cannot UPDATE or DELETE Audit Events or alter API keys', async () 
 });
 
 test('API keys are stored only as hashes', async () => {
-  const { hashKey } = await import('../../src/api-keys/keys.ts');
   const stored = await owner.query('SELECT hash FROM api_keys WHERE hash = $1', [hashKey(writeKey)]);
   expect(stored.rows).toEqual([{ hash: hashKey(writeKey) }]);
   expect((await owner.query('SELECT hash FROM api_keys WHERE hash = $1', [writeKey])).rowCount).toBe(0);
@@ -146,8 +145,9 @@ test('future events and producer recorded_at are rejected while late events keep
     expect(written.status).toBe(201);
     const read = await request(app).get(`/events/${written.body.id}`).auth(readKey, { type: 'bearer' });
     expect(read.body.occurred_at).toBe(occurred_at);
-    expect(Date.parse(read.body.recorded_at)).toBeGreaterThanOrEqual(before);
-    expect(Date.parse(read.body.recorded_at)).toBeLessThanOrEqual(Date.now());
+    // recorded_at comes from the database clock, which can drift from this machine's.
+    expect(Date.parse(read.body.recorded_at)).toBeGreaterThanOrEqual(before - clockSkewMs);
+    expect(Date.parse(read.body.recorded_at)).toBeLessThanOrEqual(Date.now() + clockSkewMs);
   }
 });
 
@@ -404,4 +404,72 @@ test('pagination preserves microseconds across concurrent writes with shared occ
   } while (cursor);
   expect(seen).toEqual(complete.body.events.map((item: { id: string }) => item.id));
   expect(new Set(seen).size).toBe(5);
+});
+
+test('revoking a key makes its very next request fail and leaves events untouched', async () => {
+  const key = await createKey(owner, 'write:Authentication');
+  const written = await request(app).post('/events').auth(key, { type: 'bearer' }).send(event);
+  expect(written.status).toBe(201);
+  const before = await owner.query('SELECT count(*)::int AS n FROM audit_events');
+  await revokeKey(owner, hashKey(key));
+  expect((await request(app).post('/events').auth(key, { type: 'bearer' }).send(event)).status).toBe(401);
+  expect((await owner.query('SELECT count(*)::int AS n FROM audit_events')).rows).toEqual(before.rows);
+  expect((await request(app).get(`/events/${written.body.id}`).auth(readKey, { type: 'bearer' })).status).toBe(200);
+});
+
+test('rotating a key revokes the old one by default and stores only the new hash', async () => {
+  const old = await createKey(owner, 'write:Authentication');
+  const rotated = await rotateKey(owner, hashKey(old));
+  expect(rotated).not.toBe(old);
+  expect((await request(app).post('/events').auth(old, { type: 'bearer' }).send(event)).status).toBe(401);
+  expect((await request(app).post('/events').auth(rotated, { type: 'bearer' }).send(event)).status).toBe(201);
+  expect((await owner.query('SELECT scope FROM api_keys WHERE hash = $1', [hashKey(rotated)])).rows).toEqual([{ scope: 'write:Authentication' }]);
+  expect((await owner.query('SELECT 1 FROM api_keys WHERE hash = $1', [rotated])).rowCount).toBe(0);
+});
+
+test('rotating with overlap keeps the old key working until it is revoked', async () => {
+  const old = await createKey(owner, 'write:Authentication');
+  const rotated = await rotateKey(owner, hashKey(old), { overlap: true });
+  expect((await request(app).post('/events').auth(old, { type: 'bearer' }).send(event)).status).toBe(201);
+  expect((await request(app).post('/events').auth(rotated, { type: 'bearer' }).send(event)).status).toBe(201);
+  await revokeKey(owner, hashKey(old));
+  expect((await request(app).post('/events').auth(old, { type: 'bearer' }).send(event)).status).toBe(401);
+});
+
+test('unknown or already revoked keys cannot be rotated', async () => {
+  await expect(rotateKey(owner, hashKey('nope'))).rejects.toThrow('Unknown key hash');
+  const old = await createKey(owner, 'write:Authentication');
+  await revokeKey(owner, hashKey(old));
+  await expect(rotateKey(owner, hashKey(old))).rejects.toThrow('Key is revoked');
+});
+
+test('Administrator free-text search matches description and Actor or Subject names, case-insensitively, with filters and paging', async () => {
+  const token = `Zq${crypto.randomUUID().slice(0, 8)}`;
+  const post = async (change: object) => {
+    const written = await request(app).post('/events').auth(writeKey, { type: 'bearer' }).send({ ...event, description: 'Unrelated.', ...change });
+    expect(written.status).toBe(201);
+    return written.body.id as string;
+  };
+  const asActor = await post({ actor: { type: 'user', id: crypto.randomUUID(), display_name: `${token} Smith` }, occurred_at: '2025-05-01T00:00:00Z' });
+  const asSubject = await post({ subject: { type: 'user', id: crypto.randomUUID(), display_name: `Dr ${token}` }, occurred_at: '2025-05-02T00:00:00Z' });
+  const inDescription = await post({ description: `Reset password for ${token.toLowerCase()} today`, outcome: 'failure', occurred_at: '2025-05-03T00:00:00Z' });
+  await post({ occurred_at: '2025-05-04T00:00:00Z' });
+  const search = (query: object) => request(app).get('/events').auth(readKey, { type: 'bearer' }).query(query);
+  const ids = async (query: object) => (await search(query)).body.events.map((item: { id: string }) => item.id);
+
+  expect(await ids({ q: token.toUpperCase() })).toEqual([inDescription, asSubject, asActor]);
+  expect(await ids({ q: `${token} smith` })).toEqual([asActor]);
+  expect(await ids({ q: `password for ${token}` })).toEqual([inDescription]);
+  expect(await ids({ q: token, outcome: 'failure' })).toEqual([inDescription]);
+  expect(await ids({ q: '%' })).toEqual([]);
+
+  const seen: string[] = [];
+  let cursor: string | null = null;
+  do {
+    const page = await search({ q: token, limit: 1, ...(cursor ? { cursor } : {}) });
+    seen.push(...page.body.events.map((item: { id: string }) => item.id));
+    cursor = page.body.next_cursor;
+  } while (cursor);
+  expect(seen).toEqual([inDescription, asSubject, asActor]);
+  expect((await search({ q: '   ' })).status).toBe(400);
 });

@@ -1,17 +1,63 @@
 import type { Express, RequestHandler } from 'express';
 import type { Pool } from 'pg';
 import { z } from 'zod';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
+import { events } from '../db/schema.ts';
 import { catalog } from './catalog.ts';
 
-const timestamp = z.iso.datetime({ offset: true });
-const cursorSchema = z.object({ occurred_at: timestamp, recorded_at: timestamp, id: z.uuid() }).strict();
-const querySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().max(1024).optional(),
+export const utc = (column: PgColumn) => sql<string>`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
+type Identity = { type: string; id: string; display_name: string };
+
+export const timestamp = z.iso.datetime({ offset: true });
+export const cursorSchema = z.object({ occurred_at: timestamp, recorded_at: timestamp, id: z.uuid() }).strict();
+export const filterShape = {
   source: z.string().min(1).optional(), module: z.string().min(1).optional(), action: z.string().min(1).optional(),
   actor_type: z.string().min(1).optional(), actor_id: z.string().min(1).optional(),
   subject_type: z.string().min(1).optional(), subject_id: z.string().min(1).optional(),
+  q: z.string().trim().min(1).max(200).optional(),
   outcome: z.enum(['success', 'failure']).optional(), from: timestamp.optional(), to: timestamp.optional(),
-}).strict().refine(value => !value.from || !value.to || Date.parse(value.from) <= Date.parse(value.to), { message: 'from must precede to' });
+};
+export type Filters = z.infer<z.ZodObject<typeof filterShape>>;
+export const datesOrdered = (value: Filters) => !value.from || !value.to || Date.parse(value.from) <= Date.parse(value.to);
+export const datesMessage = { message: 'from must precede to' };
+const querySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().max(1024).optional(), ...filterShape,
+}).strict().refine(datesOrdered, datesMessage);
+// Source and outcome have far fewer values than this, so the cap never truncates them.
+const maxBuckets = 100;
+const statsSchema = z.object({
+  group_by: z.enum(['day', 'source', 'action', 'outcome']), limit: z.coerce.number().int().min(1).max(100).default(10), ...filterShape,
+}).strict().refine(datesOrdered, datesMessage);
+
+export function filterConditions(query: Filters): SQL[] {
+  const conditions: SQL[] = [];
+  for (const column of ['source', 'module', 'action', 'actor_type', 'actor_id', 'subject_type', 'subject_id', 'outcome'] as const) {
+    if (query[column] !== undefined) conditions.push(eq(events[column], query[column]));
+  }
+  if (query.q) {
+    const pattern = `%${query.q.replace(/[\\%_]/g, '\\$&')}%`;
+    conditions.push(or(ilike(events.description, pattern), ilike(events.actor_display_name, pattern), ilike(events.subject_display_name, pattern))!);
+  }
+  // Bound strings cast to timestamptz keep the microseconds a JavaScript Date would truncate.
+  if (query.from) conditions.push(sql`${events.occurred_at} >= ${query.from}::timestamptz`);
+  if (query.to) conditions.push(sql`${events.occurred_at} <= ${query.to}::timestamptz`);
+  return conditions;
+}
+
+const identity = (type: PgColumn, id: PgColumn, displayName: PgColumn) => sql<Identity>`json_build_object('type', ${type}, 'id', ${id}, 'display_name', ${displayName})`;
+export const listFields = {
+  id: events.id, source: events.source, module: events.module, action: events.action, outcome: events.outcome,
+  actor: identity(events.actor_type, events.actor_id, events.actor_display_name),
+  target: identity(events.target_type, events.target_id, events.target_display_name),
+  subject: sql<Identity | null>`CASE WHEN ${events.subject_id} IS NULL THEN NULL ELSE ${identity(events.subject_type, events.subject_id, events.subject_display_name)} END`,
+  description: events.description, customer_description: events.customer_description,
+  ip_address: events.ip_address, user_agent: events.user_agent,
+  occurred_at: utc(events.occurred_at), recorded_at: utc(events.recorded_at),
+};
 
 export const requireAdministrator: RequestHandler = (_req, res, next) => {
   if (res.locals.scope !== 'read:admin') { res.status(403).json({ error: 'Administrator read key required' }); return; }
@@ -19,7 +65,19 @@ export const requireAdministrator: RequestHandler = (_req, res, next) => {
 };
 
 export function registerAdministratorList(app: Express, pool: Pool) {
+  const db = drizzle(pool);
   app.get('/events/valid-values', requireAdministrator, (_req, res) => { res.json({ sources: catalog }); });
+  app.get('/events/stats', requireAdministrator, async (req, res) => {
+    const parsed = statsSchema.safeParse(req.query);
+    if (!parsed.success) { res.status(400).json({ error: 'Invalid filters', details: parsed.error.issues }); return; }
+    const { group_by, limit, ...filters } = parsed.data;
+    const key = group_by === 'day' ? sql<string>`to_char(${events.occurred_at} AT TIME ZONE 'UTC', 'YYYY-MM-DD')` : events[group_by];
+    const count = sql<number>`count(*)::int`;
+    const query = db.select({ key, count }).from(events).where(and(...filterConditions(filters))).groupBy(key);
+    const buckets = group_by === 'day' ? await query.orderBy(key)
+      : await query.orderBy(desc(count), key).limit(group_by === 'action' ? limit : maxBuckets);
+    res.json({ group_by, buckets });
+  });
   app.get('/events', requireAdministrator, async (req, res) => {
     const parsed = querySchema.safeParse(req.query);
     if (!parsed.success) { res.status(400).json({ error: 'Invalid filters', details: parsed.error.issues }); return; }
@@ -29,29 +87,13 @@ export function registerAdministratorList(app: Express, pool: Pool) {
       try { cursor = cursorSchema.parse(JSON.parse(Buffer.from(query.cursor, 'base64url').toString('utf8'))); }
       catch { res.status(400).json({ error: 'Invalid cursor' }); return; }
     }
-    const values: unknown[] = [];
-    const parameter = (value: unknown) => { values.push(value); return `$${values.length}`; };
-    const conditions: string[] = [];
-    for (const column of ['source', 'module', 'action', 'actor_type', 'actor_id', 'subject_type', 'subject_id', 'outcome'] as const) {
-      if (query[column] !== undefined) conditions.push(`${column} = ${parameter(query[column])}`);
-    }
-    if (query.from) conditions.push(`occurred_at >= ${parameter(query.from)}::timestamptz`);
-    if (query.to) conditions.push(`occurred_at <= ${parameter(query.to)}::timestamptz`);
-    if (cursor) conditions.push(`(occurred_at, recorded_at, id) < (${parameter(cursor.occurred_at)}::timestamptz, ${parameter(cursor.recorded_at)}::timestamptz, ${parameter(cursor.id)}::uuid)`);
-    const result = await pool.query(`
-      SELECT id, source, module, action, outcome,
-        json_build_object('type', actor_type, 'id', actor_id, 'display_name', actor_display_name) AS actor,
-        json_build_object('type', target_type, 'id', target_id, 'display_name', target_display_name) AS target,
-        CASE WHEN subject_id IS NULL THEN NULL ELSE json_build_object('type', subject_type, 'id', subject_id, 'display_name', subject_display_name) END AS subject,
-        description, customer_description, ip_address, user_agent,
-        to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS occurred_at,
-        to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_at
-      FROM audit_events ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
-      ORDER BY audit_events.occurred_at DESC, audit_events.recorded_at DESC, audit_events.id DESC LIMIT ${parameter(query.limit + 1)}
-    `, values);
-    const page = result.rows.slice(0, query.limit);
+    const conditions = filterConditions(query);
+    if (cursor) conditions.push(sql`(${events.occurred_at}, ${events.recorded_at}, ${events.id}) < (${cursor.occurred_at}::timestamptz, ${cursor.recorded_at}::timestamptz, ${cursor.id}::uuid)`);
+    const rows = await db.select(listFields).from(events).where(and(...conditions))
+      .orderBy(desc(events.occurred_at), desc(events.recorded_at), desc(events.id)).limit(query.limit + 1);
+    const page = rows.slice(0, query.limit);
     const last = page.at(-1);
-    const next_cursor = result.rows.length > query.limit && last
+    const next_cursor = rows.length > query.limit && last
       ? Buffer.from(JSON.stringify({ occurred_at: last.occurred_at, recorded_at: last.recorded_at, id: last.id })).toString('base64url') : null;
     res.json({ events: page, next_cursor });
   });

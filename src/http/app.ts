@@ -8,7 +8,10 @@ import { z } from 'zod';
 import { events, keys } from '../db/schema.ts';
 import { hashKey } from '../api-keys/keys.ts';
 import { actionCatalog, sources } from '../audit-events/catalog.ts';
+import { registerCustomerActivity } from '../audit-events/customer-events.ts';
 import { registerAdministratorList, requireAdministrator } from '../audit-events/admin-events.ts';
+import { registerExport } from '../audit-events/export.ts';
+import { registerDocs } from './docs.ts';
 function validText(value: string): boolean { return !/[\u0000\uD800-\uDFFF]/u.test(value); }
 const text = z.string().min(1).refine(validText, 'Invalid text');
 const identity = z.object({ type: text, id: text, display_name: text }).strict();
@@ -38,7 +41,7 @@ const input = z.object({
   ip_address: z.union([z.ipv4(), z.ipv6()]).nullish(), user_agent: text.nullish(), request_id: text.nullish(),
 }).strict().refine(event => (actionCatalog[event.source] as readonly string[]).includes(event.action), { message: 'Unknown Action for Source', path: ['action'] }).refine(event => event.module == null || ['CRMS', 'HRMS', 'POS', 'IMS'].includes(event.source), { message: 'Module is only allowed for CRMS, HRMS, POS and IMS', path: ['module'] });
 
-export function createApp(pool: Pool, options: { rateLimitPerSecond?: number } = {}) {
+export function createApp(pool: Pool, options: { rateLimitPerSecond?: number; exportMaxRows?: number } = {}) {
   const rateLimit = options.rateLimitPerSecond ?? Number(process.env.RATE_LIMIT_PER_SECOND ?? 100);
   if (!Number.isSafeInteger(rateLimit) || rateLimit < 1) throw new Error('RATE_LIMIT_PER_SECOND must be a positive integer');
   const windows = new Map<string, { startedAt: number; requests: number }>();
@@ -48,6 +51,7 @@ export function createApp(pool: Pool, options: { rateLimitPerSecond?: number } =
   app.post('/events/batch', express.json({ limit: '1600kb' }));
   app.use(express.json({ limit: '16kb' }));
   app.get('/health', (_req, res) => { res.json({ status: 'ok' }); });
+  registerDocs(app);
   app.use('/events', async (req, res, next) => {
     const token = /^Bearer (\S+)$/i.exec(req.headers.authorization ?? '')?.[1];
     if (!token) { res.status(401).json({ error: 'API key required' }); return; }
@@ -111,6 +115,8 @@ export function createApp(pool: Pool, options: { rateLimitPerSecond?: number } =
     res.status(201).json(saved);
   });
   registerAdministratorList(app, pool);
+  registerExport(app, pool, { maxRows: options.exportMaxRows });
+  registerCustomerActivity(app, pool);
   app.get('/events/:id', requireAdministrator, async (req, res) => {
     const id = z.uuid().safeParse(req.params.id);
     if (!id.success) { res.status(400).json({ error: 'Invalid event id' }); return; }
