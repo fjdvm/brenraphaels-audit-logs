@@ -1,38 +1,52 @@
 # MCP server
 
-A stdio [Model Context Protocol](https://modelcontextprotocol.io) server that lets any agent call the Audit Event API as tools. It is a thin client over the HTTP API (see [`api-contract.md`](api-contract.md)): it holds no database access and enforces nothing itself, so key roles, validation and rate limits behave exactly as for direct calls.
+The service is a remote [Model Context Protocol](https://modelcontextprotocol.io) server at `POST /mcp` (Streamable HTTP, stateless). Any MCP client adds it with a URL and an API key, with nothing to install. The same instructions are in the `/docs` guide.
 
-## Configuration
+Each tool calls the HTTP API with the caller's own key ([`api-contract.md`](api-contract.md)), so key roles, validation and rate limits behave exactly as for direct calls. API errors come back as tool errors, `HTTP <status>: <body>`. A missing or revoked key gets 401.
 
-| Variable | Required | Enables |
-| --- | --- | --- |
-| `AUDIT_LOGS_URL` | yes | Base URL of the service, for example `https://brenraphaels-audit-logs.vercel.app` |
-| `AUDIT_LOGS_ADMIN_KEY` | one key at least | `read:admin` tools: `get_valid_values`, `search_events`, `get_event`, `event_stats`, `export_events` |
-| `AUDIT_LOGS_CUSTOMER_KEY` | | `read:customer` tool: `get_customer_activity` |
-| `AUDIT_LOGS_WRITE_KEY` | | `write:<Source>` tools: `write_event`, `write_events_batch` |
+## Tools by key role
 
-Only the tools whose key is set are exposed, so give an agent the narrowest key it needs. Prefer a read key for exploration; a write key lets the agent append permanent, undeletable events.
+The key's role decides which tools the agent sees.
 
-## Use it
+| Key role | Tools |
+| --- | --- |
+| `read:admin` | `get_valid_values`, `search_events`, `get_event`, `event_stats`, `export_events` |
+| `read:customer` | `get_customer_activity` |
+| `write:<Source>` | `write_event`, `write_events_batch` |
 
-From a checkout, with Node 24 or later and `npm ci` run:
+Give an agent a read key for exploration: a write key lets it append permanent, undeletable events.
 
-```json
-{
-  "mcpServers": {
-    "audit-logs": {
-      "command": "npm",
-      "args": ["run", "--silent", "mcp"],
-      "cwd": "/path/to/audit-logs",
-      "env": {
-        "AUDIT_LOGS_URL": "https://brenraphaels-audit-logs.vercel.app",
-        "AUDIT_LOGS_ADMIN_KEY": "<read:admin key>"
-      }
-    }
-  }
-}
+## Add it to a client
+
+Put your key in `AUDIT_LOGS_KEY` first so it stays out of config files. The examples use the production URL.
+
+```sh
+# Claude Code
+claude mcp add --transport http audit-logs https://brenraphaels-audit-logs.vercel.app/mcp \
+  --header "Authorization: Bearer $AUDIT_LOGS_KEY"
+
+# Codex
+codex mcp add audit-logs --url https://brenraphaels-audit-logs.vercel.app/mcp --bearer-token-env-var AUDIT_LOGS_KEY
 ```
 
-For Claude Code: `claude mcp add audit-logs -e AUDIT_LOGS_URL=<url> -e AUDIT_LOGS_ADMIN_KEY=<key> -- npm run --silent mcp --prefix /path/to/audit-logs`.
+Cursor, `~/.cursor/mcp.json`:
 
-API errors come back as tool errors of the form `HTTP <status>: <body>`, so the agent sees the same messages the contract documents.
+```json
+{ "mcpServers": { "audit-logs": {
+  "url": "https://brenraphaels-audit-logs.vercel.app/mcp",
+  "headers": { "Authorization": "Bearer ${env:AUDIT_LOGS_KEY}" } } } }
+```
+
+Kiro, `~/.kiro/settings/mcp.json`:
+
+```json
+{ "mcpServers": { "audit-logs": {
+  "url": "https://brenraphaels-audit-logs.vercel.app/mcp",
+  "headers": { "Authorization": "Bearer ${AUDIT_LOGS_KEY}" } } } }
+```
+
+Any other client that supports a remote (Streamable HTTP) MCP server with custom headers takes the same URL and `Authorization: Bearer <key>` header.
+
+## Local stdio fallback
+
+For a client without remote support, run the server from a checkout (Node 24 or later, `npm ci`) with `npm run --silent mcp`. It reads `AUDIT_LOGS_URL` plus any of `AUDIT_LOGS_ADMIN_KEY`, `AUDIT_LOGS_CUSTOMER_KEY` and `AUDIT_LOGS_WRITE_KEY`, and exposes the tools for the keys that are set.

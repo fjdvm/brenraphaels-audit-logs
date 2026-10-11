@@ -20,5 +20,5 @@ test('keeps the Audit Event routes behind keys', async () => {
 test('documents how to use the MCP server', async () => {
   const response = await request(app).get('/docs');
   expect(response.text).toContain("id:'mcp'");
-  expect(response.text).toContain('AUDIT_LOGS_ADMIN_KEY');
+  expect(response.text).toContain('claude mcp add --transport http');
 });
