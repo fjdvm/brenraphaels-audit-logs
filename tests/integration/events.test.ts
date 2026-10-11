@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from 'vitest';
+import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import request from 'supertest';
 import { Pool } from 'pg';
 import { createApp } from '../../src/app.ts';
@@ -6,7 +6,7 @@ import { createKey, revokeKey } from '../../src/keys.ts';
 
 const owner = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
 const runtime = new Pool({ connectionString: process.env.TEST_DATABASE_URL_RUNTIME });
-const app = createApp(runtime);
+const app = createApp(runtime, { rateLimitPerSecond: 1000 });
 let writeKey: string;
 let readKey: string;
 const event = {
@@ -84,13 +84,18 @@ test('optional Subject and Customer description can be absent', async () => {
 });
 
 test('anonymization role can change only personal fields and cannot delete events', async () => {
-  const client = await owner.connect();
+  const anonymize = process.env.TEST_DATABASE_URL_ANONYMIZE ? new Pool({ connectionString: process.env.TEST_DATABASE_URL_ANONYMIZE }) : undefined;
+  const client = await (anonymize ?? owner).connect();
   try {
-    await client.query('SET ROLE audit_anonymize');
+    if (!anonymize) await client.query('SET ROLE audit_anonymize');
     await client.query("UPDATE audit_events SET actor_display_name = 'Deleted customer' WHERE false");
     await expect(client.query("UPDATE audit_events SET description = 'tampered' WHERE false")).rejects.toMatchObject({ code: '42501' });
     await expect(client.query('DELETE FROM audit_events WHERE false')).rejects.toMatchObject({ code: '42501' });
-  } finally { await client.query('RESET ROLE'); client.release(); }
+  } finally {
+    if (!anonymize) await client.query('RESET ROLE');
+    client.release();
+    await anonymize?.end();
+  }
 });
 
 const startingActions: Record<string, string[]> = {
@@ -197,4 +202,107 @@ test('Postgres-invalid text is rejected as malformed input before storage', asyn
       expect((await request(app).post('/events').auth(writeKey, { type: 'bearer' }).send({ ...event, ...fields })).status).toBe(400);
     }
   }
+});
+
+
+test('a batch of 100 Audit Events is readable in input order and 101 is rejected', async () => {
+  const payload = Array.from({ length: 100 }, (_, index) => ({ ...event, description: `Batch event ${index}` }));
+  const written = await request(app).post('/events/batch').auth(writeKey, { type: 'bearer' }).send({ events: payload });
+  expect(written.status).toBe(201);
+  expect(written.body.events).toHaveLength(100);
+  expect(new Set(written.body.events.map((saved: { id: string }) => saved.id)).size).toBe(100);
+  for (const [index, saved] of written.body.events.entries()) {
+    const read = await request(app).get(`/events/${saved.id}`).auth(readKey, { type: 'bearer' });
+    expect(read.status).toBe(200);
+    expect(read.body).toMatchObject(payload[index]!);
+  }
+  expect((await request(app).post('/events/batch').auth(writeKey, { type: 'bearer' }).send({ events: [...payload, event] })).status).toBe(400);
+});
+
+test('invalid batches identify the event and store none of the preceding events', async () => {
+  const { randomUUID } = await import('node:crypto');
+  for (const invalid of [
+    { action: 'user.typo' }, { metadata: { nested: [{ accessToken: 'hidden' }] } },
+    { module: 'Customers' }, { recorded_at: event.occurred_at },
+    { occurred_at: new Date(Date.now() + 600000).toISOString() },
+    { actor: { type: 'user', id: '', display_name: 'Alice' } },
+  ]) {
+    const first = { ...event, idempotency_key: randomUUID(), description: 'Must not be stored' };
+    const rejected = await request(app).post('/events/batch').auth(writeKey, { type: 'bearer' }).send({ events: [first, { ...event, ...invalid }] });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.details.some((issue: { path: unknown[] }) => issue.path[0] === 'events' && issue.path[1] === 1)).toBe(true);
+    const accepted = await request(app).post('/events').auth(writeKey, { type: 'bearer' }).send({ ...first, description: 'Stored after rejection' });
+    expect(accepted.status).toBe(201);
+    const read = await request(app).get(`/events/${accepted.body.id}`).auth(readKey, { type: 'bearer' });
+    expect(read.body.description).toBe('Stored after rejection');
+  }
+  for (const body of [{ events: [] }, { events: [event], unknown: true }, [event]]) {
+    expect((await request(app).post('/events/batch').auth(writeKey, { type: 'bearer' }).send(body)).status).toBe(400);
+  }
+});
+
+test('batch writes enforce authentication and the Source scope for every event', async () => {
+  expect((await request(app).post('/events/batch').send({ events: [event] })).status).toBe(401);
+  expect((await request(app).post('/events/batch').auth(readKey, { type: 'bearer' }).send({ events: [event] })).status).toBe(403);
+  const response = await request(app).post('/events/batch').auth(writeKey, { type: 'bearer' }).send({ events: [event, { ...event, source: 'Ecommerce', action: 'order.placed' }] });
+  expect(response.status).toBe(403);
+  expect(response.body.index).toBe(1);
+});
+
+test('batch retries and repeated idempotency keys preserve the first event across write endpoints', async () => {
+  const { randomUUID } = await import('node:crypto');
+  const first = { ...event, idempotency_key: randomUUID() };
+  const second = { ...event, idempotency_key: randomUUID(), description: 'Second event' };
+  const payload = { events: [first, { ...first, description: 'Changed duplicate' }, second] };
+  const written = await request(app).post('/events/batch').auth(writeKey, { type: 'bearer' }).send(payload);
+  expect(written.status).toBe(201);
+  expect(written.body.events[0]).toEqual(written.body.events[1]);
+  expect(written.body.events[2].id).not.toBe(written.body.events[0].id);
+  const retries = await Promise.all(Array.from({ length: 3 }, () => request(app).post('/events/batch').auth(writeKey, { type: 'bearer' }).send(payload)));
+  for (const retry of retries) { expect(retry.status).toBe(201); expect(retry.body).toEqual(written.body); }
+  const single = await request(app).post('/events').auth(writeKey, { type: 'bearer' }).send({ ...first, description: 'Changed single retry' });
+  expect(single.status).toBe(201);
+  expect(single.body).toEqual(written.body.events[0]);
+  const read = await request(app).get(`/events/${single.body.id}`).auth(readKey, { type: 'bearer' });
+  expect(read.body).toMatchObject(first);
+});
+
+test('configured per-key limits share single and batch allowance and recover after the retry hint', async () => {
+  const previous = process.env.RATE_LIMIT_PER_SECOND;
+  process.env.RATE_LIMIT_PER_SECOND = '2';
+  let limited: ReturnType<typeof createApp>;
+  try { limited = createApp(runtime); } finally {
+    if (previous === undefined) delete process.env.RATE_LIMIT_PER_SECOND;
+    else process.env.RATE_LIMIT_PER_SECOND = previous;
+  }
+  const other = await createKey(owner, 'write:Authentication');
+  const now = Date.now();
+  const time = vi.spyOn(Date, 'now').mockReturnValue(now);
+  try {
+    expect((await request(limited).post('/events/batch').auth(writeKey, { type: 'bearer' }).send({ events: [event, event, event] })).status).toBe(201);
+    expect((await request(limited).post('/events').auth(writeKey, { type: 'bearer' }).send(event)).status).toBe(201);
+    const blocked = await request(limited).post('/events/batch').auth(writeKey, { type: 'bearer' }).send({ events: [event] });
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers['retry-after']).toBe('1');
+    expect(blocked.body.retry_after).toBe(1);
+    expect((await request(limited).post('/events').auth(other, { type: 'bearer' }).send(event)).status).toBe(201);
+    time.mockReturnValue(now + 1000);
+    expect((await request(limited).post('/events').auth(writeKey, { type: 'bearer' }).send(event)).status).toBe(201);
+  } finally { time.mockRestore(); }
+});
+
+test('default rate limit permits 100 requests and rejects the next request', async () => {
+  const previous = process.env.RATE_LIMIT_PER_SECOND;
+  delete process.env.RATE_LIMIT_PER_SECOND;
+  let limited: ReturnType<typeof createApp>;
+  try { limited = createApp(runtime); } finally {
+    if (previous !== undefined) process.env.RATE_LIMIT_PER_SECOND = previous;
+  }
+  const time = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+  try {
+    for (let index = 0; index < 100; index++) {
+      expect((await request(limited).get('/events/00000000-0000-4000-8000-000000000000').auth(readKey, { type: 'bearer' })).status).toBe(404);
+    }
+    expect((await request(limited).get('/events/00000000-0000-4000-8000-000000000000').auth(readKey, { type: 'bearer' })).status).toBe(429);
+  } finally { time.mockRestore(); }
 });
