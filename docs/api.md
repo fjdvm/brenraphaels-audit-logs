@@ -8,7 +8,7 @@ Run `npm run db:migrate` once on a fresh database. The migration creates the tab
 
 Start with `npm run dev`, or `npm run build` then `npm start`; these load `.env`. Authenticate with `Authorization: Bearer <key>`.
 
-`POST /events` requires `write:Authentication`. Example JSON:
+`POST /events` requires `write:<source>` matching the submitted Source. Example JSON:
 
 ```json
 {
@@ -24,8 +24,24 @@ Start with `npm run dev`, or `npm run build` then `npm start`; these load `.env`
 }
 ```
 
-Returns 201 with `{ "id": "<uuid>" }`. Subject and Customer description may be omitted or null. Outcome is `success` or `failure`. Timestamps use ISO 8601 with a timezone; the service supplies `recorded_at`. Authentication has no Module. Allowed Actions are in `src/catalog.ts`.
+Returns 201 with `{ "id": "<uuid>" }`. Subject and Customer description may be omitted or null. Outcome is `success` or `failure`. Timestamps use ISO 8601 with a timezone; the service supplies `recorded_at`. Authentication has no Module. An optional `module` is accepted only for CRMS, HRMS, POS and IMS and must match that Source’s catalog. Allowed Sources, Modules and Actions are in `src/catalog.ts`. Module names follow the authentication portal’s `lib/seed-data.ts`, with SCMS renamed to IMS.
 
 `GET /events/:id` requires `read:admin` and returns the fields above plus `id` and `recorded_at`; absent optional fields are null. Returns 404 for an unknown event, 400 for invalid input/Action/id, 401 for missing/unknown/revoked keys, 403 for the wrong scope and 413 for bodies over 16 KB. No update or delete endpoint exists.
 
-For tests, migrate a disposable database and set `TEST_DATABASE_URL` to its owner connection and `TEST_DATABASE_URL_RUNTIME` to its `audit_runtime` connection. Run `npm test` (or `node --env-file=.env node_modules/vitest/vitest.mjs run`). Tests call Express in-process against real Postgres and create events/keys; they do not clean or delete history. This skeleton does not yet implement batch writes, idempotency, metadata, list/search/export, Customer reads or the anonymization job.
+For tests, migrate a disposable database and set `TEST_DATABASE_URL` to its owner connection and `TEST_DATABASE_URL_RUNTIME` to its `audit_runtime` connection. Run `npm test` (or `node --env-file=.env node_modules/vitest/vitest.mjs run`). Tests call Express in-process against real Postgres and create events/keys; they do not clean or delete history. This skeleton does not yet implement batch writes, idempotency, metadata, search/export, Customer reads or the anonymization job.
+
+## Administrator list and filter values
+
+`GET /events` requires `read:admin`. Returns `{ "events": [...], "next_cursor": "..." }`; `next_cursor` is null on the last page. Each event includes the detail fields, `module`, `ip_address` and `user_agent` (null when absent). List timestamps preserve Postgres microseconds.
+
+Events are ordered by `occurred_at DESC`, then `recorded_at DESC`, then `id DESC`. The opaque cursor preserves all three ordering fields. Pass the returned `next_cursor` as `cursor` and keep the same filters while paging. Pages are live reads, not a snapshot across concurrent insertions. `limit` defaults to 50 and accepts integers from 1 to 100.
+
+Optional exact-match filters: `source`, `module`, `action`, `actor_type`, `actor_id`, `subject_type`, `subject_id`, `outcome` (`success` or `failure`). Identity is the `(type, id)` pair; pass both to identify a specific Actor or Subject. Filters combine with AND. `from` and `to` are inclusive ISO 8601 bounds with a timezone on `occurred_at`; either can be omitted. Unknown catalog values produce an empty result. Invalid queries, reversed date ranges, and malformed cursors return 400.
+
+Example: `GET /events?source=CRMS&module=Tickets&outcome=failure&from=2025-01-01T00:00:00Z&limit=25`.
+
+`GET /events/valid-values` requires `read:admin` and returns `{ "sources": [{ "source": "CRMS", "modules": [...], "actions": [...] }, ...] }` for all eight Sources, including Sources with no events. Sources without Modules return an empty array. This endpoint uses the same catalog as write validation.
+
+Write keys and `read:customer` keys receive 403 on both endpoints. No PUT, PATCH or DELETE route exists.
+
+On an existing skeleton database, run `npm run db:migrate -- 0002_administrator_list.sql` with the owner connection to add Module storage and the pagination index. On a fresh database, `npm run db:migrate` applies both migrations. Migrations are one-time operations; record which ones have run before applying them.

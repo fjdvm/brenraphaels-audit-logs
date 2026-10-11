@@ -1,5 +1,6 @@
 import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 export const events = pgTable('audit_events', {
+  module: text(),
   id: uuid().primaryKey(), source: text().notNull(), action: text().notNull(), outcome: text().notNull(),
   actor_type: text().notNull(), actor_id: text().notNull(), actor_display_name: text().notNull(),
   target_type: text().notNull(), target_id: text().notNull(), target_display_name: text().notNull(),
