@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import request from 'supertest';
 import { Pool } from 'pg';
 import { createApp } from '../../src/http/app.ts';
-import { createKey, revokeKey } from '../../src/api-keys/keys.ts';
+import { createKey, hashKey, revokeKey, rotateKey } from '../../src/api-keys/keys.ts';
 
 const owner = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
 const runtime = new Pool({ connectionString: process.env.TEST_DATABASE_URL_RUNTIME });
@@ -37,7 +37,6 @@ test('Authentication writes an Audit Event and an Administrator reads every fiel
 
 test('missing, unknown and revoked keys cannot write or read Audit Events', async () => {
   const revoked = await createKey(owner, 'write:Authentication');
-  const { hashKey } = await import('../../src/api-keys/keys.ts');
   await revokeKey(owner, hashKey(revoked));
   for (const key of [undefined, 'unknown-key', revoked]) {
     const write = request(app).post('/events');
@@ -70,7 +69,6 @@ test('runtime cannot UPDATE or DELETE Audit Events or alter API keys', async () 
 });
 
 test('API keys are stored only as hashes', async () => {
-  const { hashKey } = await import('../../src/api-keys/keys.ts');
   const stored = await owner.query('SELECT hash FROM api_keys WHERE hash = $1', [hashKey(writeKey)]);
   expect(stored.rows).toEqual([{ hash: hashKey(writeKey) }]);
   expect((await owner.query('SELECT hash FROM api_keys WHERE hash = $1', [writeKey])).rowCount).toBe(0);
@@ -407,7 +405,6 @@ test('pagination preserves microseconds across concurrent writes with shared occ
 });
 
 test('revoking a key makes its very next request fail and leaves events untouched', async () => {
-  const { hashKey } = await import('../../src/api-keys/keys.ts');
   const key = await createKey(owner, 'write:Authentication');
   const written = await request(app).post('/events').auth(key, { type: 'bearer' }).send(event);
   expect(written.status).toBe(201);
@@ -419,7 +416,6 @@ test('revoking a key makes its very next request fail and leaves events untouche
 });
 
 test('rotating a key revokes the old one by default and stores only the new hash', async () => {
-  const { hashKey, rotateKey } = await import('../../src/api-keys/keys.ts');
   const old = await createKey(owner, 'write:Authentication');
   const rotated = await rotateKey(owner, hashKey(old));
   expect(rotated).not.toBe(old);
@@ -430,7 +426,6 @@ test('rotating a key revokes the old one by default and stores only the new hash
 });
 
 test('rotating with overlap keeps the old key working until it is revoked', async () => {
-  const { hashKey, rotateKey } = await import('../../src/api-keys/keys.ts');
   const old = await createKey(owner, 'write:Authentication');
   const rotated = await rotateKey(owner, hashKey(old), { overlap: true });
   expect((await request(app).post('/events').auth(old, { type: 'bearer' }).send(event)).status).toBe(201);
@@ -440,7 +435,6 @@ test('rotating with overlap keeps the old key working until it is revoked', asyn
 });
 
 test('unknown or already revoked keys cannot be rotated', async () => {
-  const { hashKey, rotateKey } = await import('../../src/api-keys/keys.ts');
   await expect(rotateKey(owner, hashKey('nope'))).rejects.toThrow('Unknown key hash');
   const old = await createKey(owner, 'write:Authentication');
   await revokeKey(owner, hashKey(old));
