@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit Logs API Guide</title>
+<style>
+  :root { --bg:#fafaf8; --panel:#fff; --text:#1d1f23; --muted:#5f6670; --line:#dcdcd6; --accent:#0b5cad; --code:#f0f0ec;
+          --write:#8a4b00; --write-bg:#fdecd2; --admin:#0b5cad; --admin-bg:#dcebfa; --cust:#1b6b3a; --cust-bg:#d9f1e2; --none:#555; --none-bg:#e8e8e4; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg:#16171a; --panel:#1e2024; --text:#e8e8e6; --muted:#9aa1ab; --line:#33363c; --accent:#6db1f2; --code:#26292e;
+    --write:#f5b565; --write-bg:#3a2a12; --admin:#8cc4f7; --admin-bg:#14304d; --cust:#7fd6a0; --cust-bg:#12351f; --none:#bbb; --none-bg:#2c2e33; } }
+  :root[data-theme="dark"] { --bg:#16171a; --panel:#1e2024; --text:#e8e8e6; --muted:#9aa1ab; --line:#33363c; --accent:#6db1f2; --code:#26292e;
+    --write:#f5b565; --write-bg:#3a2a12; --admin:#8cc4f7; --admin-bg:#14304d; --cust:#7fd6a0; --cust-bg:#12351f; --none:#bbb; --none-bg:#2c2e33; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.55 system-ui,-apple-system,Segoe UI,sans-serif; }
+  .layout { display:grid; grid-template-columns:260px 1fr; min-height:100vh; }
+  nav { position:sticky; top:0; height:100vh; overflow:auto; padding:20px 16px; border-right:1px solid var(--line); background:var(--panel); }
+  nav h1 { font-size:16px; margin:0 0 4px; }
+  nav p { margin:0 0 14px; color:var(--muted); font-size:13px; }
+  nav input[type=search], nav input[type=text] { width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); font:inherit; font-size:13px; }
+  nav label { display:block; margin:12px 0 4px; font-size:12px; color:var(--muted); }
+  nav ul { list-style:none; margin:14px 0 0; padding:0; }
+  nav li a { display:flex; justify-content:space-between; gap:8px; padding:6px 8px; border-radius:6px; color:var(--text); text-decoration:none; font-size:14px; }
+  nav li a:hover { background:var(--code); }
+  nav li[hidden] { display:none; }
+  main { padding:32px clamp(16px,4vw,48px); max-width:960px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px 22px; margin:0 0 20px; scroll-margin-top:16px; }
+  h2 { margin:0 0 6px; font-size:20px; }
+  h3 { margin:18px 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+  .route { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:6px 0 10px; }
+  .method { font:600 12px ui-monospace,monospace; padding:3px 7px; border-radius:5px; background:var(--code); }
+  .path { font:14px ui-monospace,monospace; }
+  .badge { font-size:12px; font-weight:600; padding:2px 8px; border-radius:99px; }
+  .b-write { color:var(--write); background:var(--write-bg); } .b-admin { color:var(--admin); background:var(--admin-bg); }
+  .b-customer { color:var(--cust); background:var(--cust-bg); } .b-none { color:var(--none); background:var(--none-bg); }
+  table { width:100%; border-collapse:collapse; font-size:14px; display:block; overflow-x:auto; }
+  th, td { text-align:left; vertical-align:top; padding:6px 10px 6px 0; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  code { font:13px ui-monospace,monospace; background:var(--code); padding:1px 5px; border-radius:4px; }
+  .codewrap { position:relative; margin:8px 0; }
+  pre { margin:0; padding:12px 14px; background:var(--code); border-radius:8px; overflow:auto; font:12.5px/1.5 ui-monospace,monospace; }
+  pre code { background:none; padding:0; }
+  button.copy { position:absolute; top:6px; right:6px; font-size:12px; padding:3px 8px; border:1px solid var(--line); border-radius:5px; background:var(--panel); color:var(--text); cursor:pointer; }
+  .status { font:600 13px ui-monospace,monospace; }
+  .s2 { color:var(--cust); } .s4 { color:var(--write); } .s5 { color:#b3261e; }
+  .theme { margin-top:16px; font-size:12px; background:none; border:1px solid var(--line); border-radius:5px; color:var(--muted); padding:3px 8px; cursor:pointer; }
+  .note { color:var(--muted); font-size:14px; }
+  @media (max-width:760px) { .layout { grid-template-columns:1fr; } nav { position:static; height:auto; border-right:0; border-bottom:1px solid var(--line); } }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav>
+    <h1>Audit Logs API</h1>
+    <p>Contract for the portal tab, the Ecommerce activity page and each Source.</p>
+    <input type="search" id="filter" placeholder="Filter endpoints…" aria-label="Filter endpoints">
+    <label for="base">Base URL for examples</label>
+    <input type="text" id="base" placeholder="https://audit-logs.example.com" autocomplete="off">
+    <ul id="toc"></ul>
+    <button class="theme" id="theme" type="button">Toggle theme</button>
+  </nav>
+  <main id="content"></main>
+</div>
+<script>
+/* Mirrors docs/api-contract.md, the reference. Update both together. */
+const ROLES = { write:['write:<Source>','b-write'], admin:['read:admin','b-admin'], customer:['read:customer','b-customer'], none:['no key','b-none'] };
+const identity = '{"type": "customer", "id": "cust-42", "display_name": "Maria Santos"}';
+const SECTIONS = [
+{ id:'basics', title:'Start here', role:'none', intro:
+  `Every <code>/events</code> route needs <code>Authorization: Bearer &lt;key&gt;</code>. Keys are issued per role by an operator (<code>npm run key</code>). JSON in and out, except the export. Errors are <code>{"error": "…"}</code>, plus <code>details</code> for validation problems. Timestamps are ISO 8601 with a timezone; responses are UTC with microseconds. No route edits or deletes an Audit Event.`,
+  tables:[{ head:['Key role','Held by','May call'], rows:[
+    ['<code>write:&lt;Source&gt;</code>','That Source’s integration','<code>POST /events</code>, <code>POST /events/batch</code> for its own Source'],
+    ['<code>read:admin</code>','The portal tab (Administrators)','<code>GET /events</code>, <code>/events/:id</code>, <code>/events/stats</code>, <code>/events/valid-values</code>, <code>/events/export</code>'],
+    ['<code>read:customer</code>','The Ecommerce backend','<code>GET /events/customer-activity</code>']]},
+  { title:'Errors on every /events route', head:['Status','When','Body'], rows:[
+    ['<span class="status s4">401</span>','No header, unknown or revoked key','<code>{"error":"API key required"}</code> or <code>"Invalid API key"</code>'],
+    ['<span class="status s4">403</span>','Key role not allowed on this route','<code>{"error":"… key required"}</code>'],
+    ['<span class="status s4">429</span>','Over 100 requests per key per second (a batch counts as one)','<code>{"error":"API key rate limit exceeded","retry_after":1}</code> + <code>Retry-After: 1</code>'],
+    ['<span class="status s4">400</span>','Malformed JSON body','<code>{"error":"Invalid request body"}</code>'],
+    ['<span class="status s4">413</span>','Body over 16 KB (1600 KB for batch)','<code>{"error":"Invalid request body"}</code>'],
+    ['<span class="status s5">500</span>','Unexpected failure','<code>{"error":"Internal server error"}</code>']]}] },
+{ id:'write', title:'Write an Audit Event', method:'POST', path:'/events', role:'write', intro:'Key must be <code>write:&lt;Source&gt;</code> matching the body’s <code>source</code>. Unknown fields (including <code>recorded_at</code>), NUL characters and malformed Unicode return 400.',
+  tables:[{ title:'Body', head:['Field','Required','Notes'], rows:[
+    ['<code>source</code>','yes','CRMS, HRMS, POS, IMS, Authentication, File storage, Notifications or Ecommerce'],
+    ['<code>action</code>','yes','Must belong to that Source (see Valid values)'],
+    ['<code>outcome</code>','yes','<code>success</code> or <code>failure</code>'],
+    ['<code>actor</code>, <code>target</code>','yes','<code>{type, id, display_name}</code>, all nonempty'],
+    ['<code>subject</code>','no','Same shape or null. Decides whose history the event appears in'],
+    ['<code>description</code>','yes','Plain sentence for Administrators, stored verbatim'],
+    ['<code>customer_description</code>','no','Sentence for the Subject Customer. Without it the event is Administrator-only'],
+    ['<code>occurred_at</code>','yes','May be late; at most 5 minutes in the future'],
+    ['<code>module</code>','no','Only CRMS, HRMS, POS, IMS'],
+    ['<code>metadata</code>','no','JSON object ≤ 4096 bytes. Keys containing password, token, secret, authorization, card or cvv are rejected at any depth'],
+    ['<code>ip_address</code>, <code>user_agent</code>, <code>request_id</code>','no','IPv4/IPv6; nonempty strings'],
+    ['<code>idempotency_key</code>','no','Retry with the same Source and key returns the original id']]}],
+  responses:[['201','<code>{"id":"&lt;uuid&gt;"}</code>'],['400','<code>{"error":"Invalid Audit Event","details":[…]}</code>'],['403','<code>{"error":"Source write key required"}</code>: not a write key, or a different Source']],
+  example:`curl -X POST "$BASE_URL/events" \\
+  -H "Authorization: Bearer $WRITE_KEY" -H "Content-Type: application/json" \\
+  -d '{
+    "source": "Ecommerce", "action": "order.placed", "outcome": "success",
+    "actor":   ${identity},
+    "target":  {"type": "order", "id": "order-1001", "display_name": "Order #1001"},
+    "subject": ${identity},
+    "description": "Maria Santos placed order #1001.",
+    "customer_description": "You placed order #1001.",
+    "occurred_at": "2026-01-01T12:00:00.000Z",
+    "idempotency_key": "order-1001-placed"
+  }'
+# 201 {"id":"6f0c9a52-3d1e-4c8e-9a53-0f4b8b1d2c77"}` },
+{ id:'batch', title:'Write a batch', method:'POST', path:'/events/batch', role:'write', intro:'1 to 100 events, each validated like a single write, all stored in one transaction: a failure stores none. The key must match <strong>every</strong> event’s Source.',
+  responses:[['201','<code>{"events":[{"id":"…"}, …]}</code> in input order'],['400','<code>details[].path</code> starts <code>["events", index, …]</code> (zero-based)'],['403','<code>{"error":"Source write key required","index":n}</code>']],
+  example:`curl -X POST "$BASE_URL/events/batch" \\
+  -H "Authorization: Bearer $WRITE_KEY" -H "Content-Type: application/json" \\
+  -d '{"events": [
+    {"source":"Notifications","action":"notification.sent","outcome":"success",
+     "actor":{"type":"process","id":"mailer","display_name":"Mailer"},
+     "target":{"type":"email","id":"m-1","display_name":"Welcome email"},
+     "description":"Welcome email sent.","occurred_at":"2026-01-01T12:00:00Z"},
+    {"source":"Notifications","action":"notification.failed","outcome":"failure",
+     "actor":{"type":"process","id":"mailer","display_name":"Mailer"},
+     "target":{"type":"email","id":"m-2","display_name":"Receipt email"},
+     "description":"Receipt email bounced.","occurred_at":"2026-01-01T12:00:05Z"}
+  ]}'
+# 201 {"events":[{"id":"…"},{"id":"…"}]}` },
+{ id:'detail', title:'Get one Audit Event', method:'GET', path:'/events/:id', role:'admin', intro:'Every written field plus <code>id</code> and <code>recorded_at</code>. Absent optional fields are null.',
+  responses:[['200','The event'],['400','<code>{"error":"Invalid event id"}</code>: not a UUID'],['404','<code>{"error":"Audit Event not found"}</code>']],
+  example:`curl "$BASE_URL/events/6f0c9a52-3d1e-4c8e-9a53-0f4b8b1d2c77" -H "Authorization: Bearer $ADMIN_KEY"
+# 200
+{ "id": "6f0c9a52-…", "source": "Ecommerce", "action": "order.placed", "outcome": "success",
+  "actor": ${identity}, "target": {…}, "subject": ${identity},
+  "description": "Maria Santos placed order #1001.", "customer_description": "You placed order #1001.",
+  "occurred_at": "2026-01-01T12:00:00.000Z", "recorded_at": "2026-01-01T12:00:01.204Z",
+  "module": null, "metadata": null, "ip_address": null, "user_agent": null,
+  "request_id": null, "idempotency_key": "order-1001-placed" }` },
+{ id:'list', title:'Administrator list and search', method:'GET', path:'/events', role:'admin', intro:'Newest first by <code>occurred_at</code>, then <code>recorded_at</code>, then <code>id</code>. Unknown parameters return 400.',
+  tables:[{ title:'Query parameters', head:['Parameter','Meaning'], rows:[
+    ['<code>source</code> <code>module</code> <code>action</code> <code>outcome</code> <code>actor_type</code> <code>actor_id</code> <code>subject_type</code> <code>subject_id</code>','Exact match, combined with AND. Pass both <code>*_type</code> and <code>*_id</code> to identify one Actor or Subject. Unknown values give an empty list'],
+    ['<code>from</code> <code>to</code>','Inclusive ISO 8601 bounds on <code>occurred_at</code>, timezone required. <code>from</code> must not follow <code>to</code>'],
+    ['<code>q</code>','Case-insensitive substring of <code>description</code> and Actor/Subject display names. 1–200 characters; <code>%</code> <code>_</code> <code>\\</code> are literal'],
+    ['<code>limit</code>','1–100, default 50'],
+    ['<code>cursor</code>','Previous <code>next_cursor</code>. Keep the same filters while paging. Pages are live, not a snapshot']]}],
+  responses:[['200','<code>{"events":[…],"next_cursor":"…"|null}</code>. Each event: id, source, module, action, outcome, actor, target, subject, description, customer_description, ip_address, user_agent, occurred_at, recorded_at'],['400','<code>{"error":"Invalid filters","details":[…]}</code> or <code>"Invalid cursor"</code>']],
+  example:`curl -G "$BASE_URL/events" -H "Authorization: Bearer $ADMIN_KEY" \\
+  --data-urlencode "source=CRMS" --data-urlencode "module=Tickets" \\
+  --data-urlencode "outcome=failure" --data-urlencode "q=alice" \\
+  --data-urlencode "from=2026-01-01T00:00:00Z" --data-urlencode "limit=25"
+# 200 {"events":[{…}],"next_cursor":"eyJvY2N1cnJlZF9hdCI6…"}` },
+{ id:'stats', title:'Stats for charts', method:'GET', path:'/events/stats', role:'admin', intro:'<code>group_by</code> is required: <code>day</code>, <code>source</code>, <code>action</code> or <code>outcome</code>. Accepts the list filters (including <code>q</code>, <code>from</code>, <code>to</code>) but no <code>cursor</code>. <code>limit</code> (1–100, default 10) caps buckets for <code>action</code> only. <code>day</code> buckets are UTC dates, ascending, empty days omitted; the others are highest count first.',
+  responses:[['200','<code>{"group_by":"day","buckets":[{"key":"2026-01-01","count":12}, …]}</code>'],['400','<code>{"error":"Invalid filters","details":[…]}</code>']],
+  example:`curl -G "$BASE_URL/events/stats" -H "Authorization: Bearer $ADMIN_KEY" \\
+  --data-urlencode "group_by=day" --data-urlencode "source=Authentication" \\
+  --data-urlencode "action=user.login_failed" --data-urlencode "outcome=failure"
+# 200 {"group_by":"day","buckets":[{"key":"2026-01-01","count":4},{"key":"2026-01-02","count":9}]}` },
+{ id:'valid-values', title:'Valid values', method:'GET', path:'/events/valid-values', role:'admin', intro:'No parameters. Fill the portal’s filter dropdowns from this, and learn which Actions each Source may write. Sources without Modules return <code>"modules": []</code>. Writes to CRMS, HRMS, POS and IMS accept any nonempty module, not only the listed ones.',
+  example:`curl "$BASE_URL/events/valid-values" -H "Authorization: Bearer $ADMIN_KEY"
+# 200 {"sources":[{"source":"CRMS",
+#   "modules":["Dashboard","Customer Profiles","Campaigns","Conversations","Tickets"],
+#   "actions":["record.created","record.updated","record.deleted","record.viewed"]}, …all eight Sources]}` },
+{ id:'export', title:'Export', method:'GET', path:'/events/export', role:'admin', intro:'Streams matching events as a download, newest first. No <code>limit</code> or <code>cursor</code>. Every accepted export first records an <code>audit_log.exported</code> Audit Event (Source Authentication) holding <code>format</code>, <code>row_count</code> and <code>filters</code>; the file never contains its own export event. If streaming fails partway the connection is aborted. CSV cells starting with <code>= + - @</code>, tab or CR get a leading <code>\'</code>.',
+  tables:[{ title:'Query parameters', head:['Parameter','Required','Meaning'], rows:[
+    ['<code>format</code>','yes','<code>csv</code> (flat <code>actor_*</code>, <code>target_*</code>, <code>subject_*</code> columns) or <code>json</code> (<code>{"events":[…]}</code>)'],
+    ['<code>from</code> <code>to</code>','yes','Inclusive ISO 8601 bounds on <code>occurred_at</code>'],
+    ['<code>requested_by_id</code> <code>requested_by_name</code>','yes','The portal Administrator asking. Keys carry no identity, so you supply it; it becomes the export event’s Actor'],
+    ['<code>source</code> <code>module</code> <code>action</code> <code>outcome</code> <code>actor_*</code> <code>subject_*</code> <code>q</code>','no','Same filters as the list']]}],
+  responses:[['200','Streamed file, <code>Content-Disposition: attachment; filename="audit-events.csv"</code> (or <code>.json</code>)'],['400','Missing or invalid parameters; the message names what is required'],['413','More than 50,000 matches: <code>{"error":"…","row_count":73120,"limit":50000}</code>. Nothing streamed or recorded']],
+  example:`curl -G "$BASE_URL/events/export" -H "Authorization: Bearer $ADMIN_KEY" -o audit-events.csv \\
+  --data-urlencode "format=csv" --data-urlencode "from=2026-01-01T00:00:00Z" --data-urlencode "to=2026-01-31T23:59:59Z" \\
+  --data-urlencode "requested_by_id=user-7" --data-urlencode "requested_by_name=Alice Admin"` },
+{ id:'customer', title:'Customer activity', method:'GET', path:'/events/customer-activity', role:'customer', intro:'For the Ecommerce activity page. Derive <code>subject_id</code> from the Customer’s logged-in session in your backend, never from the browser. Only events with a <code>customer_description</code> for that Subject appear, newest first. Each has only <code>id</code>, <code>source</code>, <code>action</code>, <code>outcome</code>, <code>customer_description</code>, <code>occurred_at</code>: never the Actor, Target, IP address, user agent, metadata or Administrator description. Any other parameter returns 400.',
+  tables:[{ title:'Query parameters', head:['Parameter','Required','Meaning'], rows:[
+    ['<code>subject_type</code> <code>subject_id</code>','yes','The Customer. Without both, 400'],
+    ['<code>limit</code>','no','1–100, default 50'],
+    ['<code>cursor</code>','no','Previous <code>next_cursor</code>; pages only within the same Subject']]}],
+  responses:[['200','<code>{"events":[…],"next_cursor":"…"|null}</code>'],['400','<code>{"error":"Invalid query","details":[…]}</code> or <code>"Invalid cursor"</code>'],['403','Admin and write keys']],
+  example:`curl -G "$BASE_URL/events/customer-activity" -H "Authorization: Bearer $CUSTOMER_KEY" \\
+  --data-urlencode "subject_type=customer" --data-urlencode "subject_id=cust-42" --data-urlencode "limit=20"
+# 200
+{ "events": [ { "id": "6f0c9a52-…", "source": "Ecommerce", "action": "order.placed", "outcome": "success",
+                "customer_description": "You placed order #1001.", "occurred_at": "2026-01-01T12:00:00.000000Z" } ],
+  "next_cursor": null }` },
+{ id:'erasure', title:'Customer erasure', role:'none', intro:'Not an HTTP endpoint. An operator runs <code>npm run anonymize-customer -- &lt;customer id&gt;</code> with the <code>audit_anonymize</code> connection. It replaces the Customer’s display names with “Deleted customer” and clears their IP address and user agent where they were the Actor. The events stay.' }
+];
+
+const $ = (s, r=document) => r.querySelector(s);
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+const table = t => `${t.title ? `<h3>${t.title}</h3>` : ''}<table><thead><tr>${t.head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${t.rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+const statusClass = s => 's' + s[0];
+function render(base) {
+  $('#content').innerHTML = SECTIONS.map(s => {
+    const [roleText, roleClass] = ROLES[s.role];
+    const route = s.method ? `<span class="method">${s.method}</span><span class="path">${s.path}</span>` : '';
+    const resp = s.responses ? table({ title:'Responses', head:['Status','Body'], rows:s.responses.map(([c,b])=>[`<span class="status ${statusClass(c)}">${c}</span>`, b]) }) : '';
+    const ex = s.example ? `<h3>Worked example</h3><div class="codewrap"><button class="copy" type="button">Copy</button><pre><code>${esc(s.example.replaceAll('$BASE_URL', base || '$BASE_URL'))}</code></pre></div>` : '';
+    return `<section id="${s.id}"><h2>${s.title}</h2><div class="route">${route}<span class="badge ${roleClass}">${roleText}</span></div>
+      <p>${s.intro}</p>${(s.tables||[]).map(table).join('')}${resp}${ex}</section>`;
+  }).join('');
+}
+function toc(filter='') {
+  const f = filter.toLowerCase();
+  $('#toc').innerHTML = SECTIONS.map(s => `<li ${`${s.title} ${s.path||''} ${s.role}`.toLowerCase().includes(f) ? '' : 'hidden'}><a href="#${s.id}"><span>${s.title}</span></a></li>`).join('');
+}
+let base = '';
+try { base = localStorage.getItem('audit-base') || ''; } catch {}
+$('#base').value = base;
+render(base); toc();
+$('#filter').addEventListener('input', e => toc(e.target.value));
+$('#base').addEventListener('input', e => { base = e.target.value.trim().replace(/\/$/,''); try { localStorage.setItem('audit-base', base); } catch {} render(base); });
+$('#content').addEventListener('click', e => {
+  if (!e.target.matches('button.copy')) return;
+  const btn = e.target;
+  navigator.clipboard?.writeText($('code', btn.parentElement).textContent).then(() => { btn.textContent = 'Copied'; setTimeout(() => btn.textContent = 'Copy', 1200); });
+});
+$('#theme').addEventListener('click', () => {
+  const dark = document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'light' : 'dark';
+});
+</script>
+</body>
+</html>
