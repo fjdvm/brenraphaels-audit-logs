@@ -352,7 +352,8 @@ test('Administrator filters combine across Source, Module, Action, identities, o
   expect(page.status).toBe(200);
   expect(page.body.events.map((item: { id: string }) => item.id)).toEqual([first.body.id]);
   for (const [field, value] of Object.entries(filters)) {
-    const filtered = await request(app).get('/events').auth(readKey, { type: 'bearer' }).query({ [field]: value });
+    const anchor = field.startsWith('actor_') ? { subject_id: subject.id } : { actor_id: actor.id };
+    const filtered = await request(app).get('/events').auth(readKey, { type: 'bearer' }).query({ ...anchor, [field]: value });
     expect(filtered.status).toBe(200);
     expect(filtered.body.events.some((item: { id: string }) => item.id === first.body.id)).toBe(true);
     for (const item of filtered.body.events) {
