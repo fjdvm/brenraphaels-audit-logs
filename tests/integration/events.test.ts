@@ -7,6 +7,7 @@ import { createKey, hashKey, revokeKey, rotateKey } from '../../src/api-keys/key
 const owner = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
 const runtime = new Pool({ connectionString: process.env.TEST_DATABASE_URL_RUNTIME });
 const app = createApp(runtime, { rateLimitPerSecond: 1000 });
+const clockSkewMs = 2000;
 let writeKey: string;
 let readKey: string;
 const event = {
@@ -144,8 +145,9 @@ test('future events and producer recorded_at are rejected while late events keep
     expect(written.status).toBe(201);
     const read = await request(app).get(`/events/${written.body.id}`).auth(readKey, { type: 'bearer' });
     expect(read.body.occurred_at).toBe(occurred_at);
-    expect(Date.parse(read.body.recorded_at)).toBeGreaterThanOrEqual(before);
-    expect(Date.parse(read.body.recorded_at)).toBeLessThanOrEqual(Date.now());
+    // recorded_at comes from the database clock, which can drift from this machine's.
+    expect(Date.parse(read.body.recorded_at)).toBeGreaterThanOrEqual(before - clockSkewMs);
+    expect(Date.parse(read.body.recorded_at)).toBeLessThanOrEqual(Date.now() + clockSkewMs);
   }
 });
 

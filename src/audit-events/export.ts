@@ -20,9 +20,11 @@ const csvColumns = ['id', 'source', 'module', 'action', 'outcome', 'actor_type',
   'subject_type', 'subject_id', 'subject_display_name', 'description', 'customer_description', 'ip_address', 'user_agent', 'occurred_at', 'recorded_at'] as const;
 type Row = Awaited<ReturnType<ReturnType<typeof readBatch>>>[number];
 
+// Spreadsheets run cells that start with these as formulas, so CSV cells get a leading apostrophe. JSON is untouched.
 const csvField = (value: unknown) => {
   if (value === null || value === undefined) return '';
-  const text = String(value);
+  const raw = String(value);
+  const text = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 };
 function csvLine(row: Row) {

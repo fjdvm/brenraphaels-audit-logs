@@ -58,6 +58,17 @@ test('CSV export has a header and one correctly quoted row per listed event, new
   expect(rows[0]![header.indexOf('description')]).toBe(base.description);
 });
 
+test('CSV neutralises spreadsheet formulas in cells while JSON keeps the text verbatim', async () => {
+  const other = crypto.randomUUID();
+  const formula = '=HYPERLINK("http://example.test","click")';
+  const written = await request(app).post('/events').auth(authKey, { type: 'bearer' }).send({ ...base, actor: { ...actor, id: other, display_name: formula }, occurred_at: '2025-07-20T10:00:00Z' });
+  expect(written.status).toBe(201);
+  const filters = { ...range, actor_id: other };
+  const [header = [] as string[], row = []] = parseCsv((await exportText({ ...filters, format: 'csv' })).text);
+  expect(row[header.indexOf('actor_display_name')]).toBe(`'${formula}`);
+  expect(JSON.parse((await exportText({ ...filters, format: 'json' })).text).events[0].actor.display_name).toBe(formula);
+});
+
 test('an export without a full date range is refused with a clear message', async () => {
   for (const query of [{ format: 'csv' }, { format: 'csv', from: range.from }, { format: 'json', to: range.to }]) {
     const response = await exportAs(query);
