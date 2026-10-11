@@ -18,9 +18,11 @@
     "db:migrate": "node --env-file=.env scripts/migrate.ts",
     "key": "node --env-file=.env scripts/key.ts",
     "smoke": "node scripts/smoke.ts",
-    "anonymize-customer": "node --env-file=.env scripts/anonymize-customer.ts"
+    "anonymize-customer": "node --env-file=.env scripts/anonymize-customer.ts",
+    "mcp": "node src/mcp/main.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "drizzle-orm": "^0.45.4",
     "express": "^5.3.0",
     "pg": "^8.23.1",
