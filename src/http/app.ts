@@ -11,6 +11,7 @@ import { actionCatalog, sources } from '../audit-events/catalog.ts';
 import { registerCustomerActivity } from '../audit-events/customer-events.ts';
 import { registerAdministratorList, requireAdministrator } from '../audit-events/admin-events.ts';
 import { registerExport } from '../audit-events/export.ts';
+import { registerDocs } from './docs.ts';
 function validText(value: string): boolean { return !/[\u0000\uD800-\uDFFF]/u.test(value); }
 const text = z.string().min(1).refine(validText, 'Invalid text');
 const identity = z.object({ type: text, id: text, display_name: text }).strict();
@@ -50,6 +51,7 @@ export function createApp(pool: Pool, options: { rateLimitPerSecond?: number; ex
   app.post('/events/batch', express.json({ limit: '1600kb' }));
   app.use(express.json({ limit: '16kb' }));
   app.get('/health', (_req, res) => { res.json({ status: 'ok' }); });
+  registerDocs(app);
   app.use('/events', async (req, res, next) => {
     const token = /^Bearer (\S+)$/i.exec(req.headers.authorization ?? '')?.[1];
     if (!token) { res.status(401).json({ error: 'API key required' }); return; }

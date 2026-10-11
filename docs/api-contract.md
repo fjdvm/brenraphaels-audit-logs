@@ -1,6 +1,6 @@
 # API contract
 
-For the authors of the portal tab, the Ecommerce activity page and each Source's integration. Terms follow [`CONTEXT.md`](../CONTEXT.md). Setup, deployment and operator notes live in [`api.md`](api.md). A browsable version of this page is [`guide/index.html`](guide/index.html).
+For the authors of the portal tab, the Ecommerce activity page and each Source's integration. Terms follow [`CONTEXT.md`](../CONTEXT.md). Setup, deployment and operator notes live in [`api.md`](api.md). A browsable version of this page is [`guide/index.html`](guide/index.html), served by the running service at `GET /docs` (no key needed).
 
 ## Conventions
 
