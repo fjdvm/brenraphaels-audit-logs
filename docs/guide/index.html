@@ -43,10 +43,11 @@
   code { font:11.5px var(--mono); background:var(--pill-bg); color:var(--pill-text); padding:1px 6px; border-radius:4px; }
   .route code.path { font-size:12.5px; }
   .method { font:600 11px var(--mono); color:var(--pill-text); }
-  table { width:100%; border-collapse:collapse; font-size:12.5px; display:block; overflow-x:auto; margin:0 0 6px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; margin:0 0 6px; }
   th, td { text-align:left; vertical-align:top; padding:7px 14px 7px 0; border-bottom:1px solid var(--line); color:var(--muted); }
   th { font:500 9px var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--faint); }
-  td:first-child { white-space:nowrap; } td code { white-space:normal; }
+  td:first-child { width:38%; } table.narrow td:first-child { width:1%; white-space:nowrap; }
+  td code { display:inline-block; margin:0 2px 3px 0; overflow-wrap:anywhere; } td { overflow-wrap:anywhere; }
   .status { font:500 11px var(--mono); } .s2 { color:#1b6b3a; } .s4 { color:#9a6a00; } .s5 { color:#b3261e; }
   .term { position:relative; background:var(--term); border-radius:8px; margin:6px 0 14px; }
   .term pre { margin:0; padding:20px 22px; overflow:auto; font:11.5px/1.75 var(--mono); color:var(--term-text); }
@@ -63,7 +64,7 @@
   <h1>How to use the Audit Logs API</h1>
   <p class="lede">The company's single, append-only record of who did what, where and when. This page covers every endpoint, the key role each needs, the filters and the errors, with one worked example each. It is written for the authors of the portal tab, the Ecommerce activity page and each Source's integration.</p>
   <div class="meta"><span>Append-only</span><span>·</span><span>Bearer-key access</span><span>·</span>
-    <label>Base URL for examples <input type="text" id="base" placeholder="https://audit-logs.example.com" autocomplete="off" aria-label="Base URL for examples"></label></div>
+    <label>Base URL for examples <input type="text" id="base" placeholder="https://brenraphaels-audit-logs.vercel.app" autocomplete="off" aria-label="Base URL for examples"></label></div>
   <hr>
   <div class="cols">
     <nav aria-label="Contents"><h2>Contents</h2><ol id="toc"></ol></nav>
@@ -81,7 +82,7 @@ const SECTIONS = [
     ['<code>write:&lt;Source&gt;</code>','That Source’s integration','<code>POST /events</code>, <code>POST /events/batch</code> for its own Source'],
     ['<code>read:admin</code>','The portal tab (Administrators)','<code>GET /events</code>, <code>/events/:id</code>, <code>/events/stats</code>, <code>/events/valid-values</code>, <code>/events/export</code>'],
     ['<code>read:customer</code>','The Ecommerce backend','<code>GET /events/customer-activity</code>']]},
-  { title:'Errors on every /events route', head:['Status','When','Body'], rows:[
+  { title:'Errors on every /events route', narrow:true, head:['Status','When','Body'], rows:[
     ['<span class="status s4">401</span>','No header, unknown or revoked key','<code>{"error":"API key required"}</code> or <code>"Invalid API key"</code>'],
     ['<span class="status s4">403</span>','Key role not allowed on this route','<code>{"error":"… key required"}</code>'],
     ['<span class="status s4">429</span>','Over 100 requests per key per second (a batch counts as one)','<code>{"error":"API key rate limit exceeded","retry_after":1}</code> + <code>Retry-After: 1</code>'],
@@ -192,7 +193,7 @@ const SECTIONS = [
 
 const $ = (s, r=document) => r.querySelector(s);
 const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
-const table = t => `${t.title ? `<h3>${t.title}</h3>` : ''}<table><thead><tr>${t.head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${t.rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+const table = t => `${t.title ? `<h3>${t.title}</h3>` : ''}<table${t.narrow ? ' class="narrow"' : ''}><thead><tr>${t.head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${t.rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
 const statusClass = s => 's' + s[0];
 // Dim comment lines (the sample responses) in the terminal blocks.
 const termHtml = text => esc(text).split('\n').map(l => /^#/.test(l) ? `<span class="c">${l}</span>` : l).join('\n');
@@ -200,15 +201,15 @@ function render(base) {
   $('#content').innerHTML = SECTIONS.map((s, i) => {
     const [roleText, roleClass] = ROLES[s.role];
     const route = `<div class="route">${s.method ? `<span class="method">${s.method}</span><code class="path">${s.path}</code>` : ''}<span class="badge ${roleClass}">${roleText}</span></div>`;
-    const resp = s.responses ? table({ title:'Responses', head:['Status','Body'], rows:s.responses.map(([c,b])=>[`<span class="status ${statusClass(c)}">${c}</span>`, b]) }) : '';
+    const resp = s.responses ? table({ title:'Responses', narrow:true, head:['Status','Body'], rows:s.responses.map(([c,b])=>[`<span class="status ${statusClass(c)}">${c}</span>`, b]) }) : '';
     const ex = s.example ? `<h3>Worked example</h3><div class="term"><button class="copy" type="button">Copy</button><pre><code>${termHtml(s.example.replaceAll('$BASE_URL', base || '$BASE_URL'))}</code></pre></div>` : '';
     return `<section id="${s.id}"><h2><span class="n">${String(i + 1).padStart(2, '0')}</span>${s.title}</h2>${route}
       <p>${s.intro}</p>${(s.tables||[]).map(table).join('')}${resp}${ex}</section>`;
   }).join('');
 }
 $('#toc').innerHTML = SECTIONS.map((s, i) => `<li><a href="#${s.id}">${i + 1}. ${s.title}</a></li>`).join('');
-let base = '';
-try { base = localStorage.getItem('audit-base') || ''; } catch {}
+let base = 'https://brenraphaels-audit-logs.vercel.app';
+try { base = localStorage.getItem('audit-base') ?? base; } catch {}
 $('#base').value = base;
 render(base);
 $('#base').addEventListener('input', e => { base = e.target.value.trim().replace(/\/$/,''); try { localStorage.setItem('audit-base', base); } catch {} render(base); observe(); });
