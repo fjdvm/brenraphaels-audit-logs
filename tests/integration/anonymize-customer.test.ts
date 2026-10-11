@@ -11,7 +11,7 @@ const runtime = new Pool({ connectionString: process.env.TEST_DATABASE_URL_RUNTI
 // Same fallback as the role test in events.test.ts: owners that can SET ROLE stand in for the real login.
 const anonymize = process.env.TEST_DATABASE_URL_ANONYMIZE
   ? new Pool({ connectionString: process.env.TEST_DATABASE_URL_ANONYMIZE })
-  : new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 1 }).on('connect', client => { client.query('SET ROLE audit_anonymize').catch(() => {}); });
+  : new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 1 }).on('connect', client => { client.query('SET ROLE audit_anonymize').catch(error => { throw new Error(`Cannot SET ROLE audit_anonymize; set TEST_DATABASE_URL_ANONYMIZE: ${error.message}`); }); });
 const app = createApp(runtime, { rateLimitPerSecond: 1000 });
 let writeKey: string;
 let adminKey: string;
