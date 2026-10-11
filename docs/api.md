@@ -45,7 +45,7 @@ A successful batch returns 201 with `{ "events": [{ "id": "<uuid>" }, ...] }` in
 
 `GET /events/:id` requires `read:admin` and returns the fields above plus `id` and `recorded_at`; absent optional fields are null. Returns 404 for an unknown event, 400 for invalid input/Action/id, 401 for missing/unknown/revoked keys, 403 for the wrong scope and 413 for bodies over 16 KB. No update or delete endpoint exists.
 
-For tests, use the existing Neon connections in `.env` (see `AGENTS.md`); set `TEST_DATABASE_URL` from `DATABASE_URL_MIGRATIONS` and `TEST_DATABASE_URL_RUNTIME` from `DATABASE_URL` when dedicated test URLs are unset. Set `TEST_DATABASE_URL_ANONYMIZE` from `DATABASE_URL_ANONYMIZE` when the owner cannot `SET ROLE`. Run `npm test -- --testTimeout=120000 --hookTimeout=30000` (or `node --env-file=.env node_modules/vitest/vitest.mjs run --testTimeout=120000 --hookTimeout=30000`) with those test URLs exported; the longer timeout accommodates Neon network latency. Tests call Express in-process against real Postgres and create events/keys; they do not clean or delete history. Export and the anonymization job are separate work.
+For tests, use the existing Neon connections in `.env` (see `AGENTS.md`); set `TEST_DATABASE_URL` from `DATABASE_URL_MIGRATIONS` and `TEST_DATABASE_URL_RUNTIME` from `DATABASE_URL` when dedicated test URLs are unset. Set `TEST_DATABASE_URL_ANONYMIZE` from `DATABASE_URL_ANONYMIZE` when the owner cannot `SET ROLE`. Run `npm test -- --testTimeout=120000 --hookTimeout=30000` (or `node --env-file=.env node_modules/vitest/vitest.mjs run --testTimeout=120000 --hookTimeout=30000`) with those test URLs exported; the longer timeout accommodates Neon network latency. Tests call Express in-process against real Postgres and create events/keys; they do not clean or delete history. The anonymization job is separate work.
 
 ## Deployment (Vercel + Neon)
 
@@ -80,3 +80,17 @@ On a database with the write-contract migration applied, run `npm run db:migrate
 `GET /events/customer-activity` requires `read:customer` (the Ecommerce backend's key); admin and write keys receive 403. `subject_type` and `subject_id` are both required: a query without a Subject returns 400. The only other parameters are `limit` (1–100, default 50) and `cursor`; any other parameter returns 400, so no filter can reach another Customer's events.
 
 Returns `{ "events": [...], "next_cursor": "..." }` for that Subject's Audit Events that have a `customer_description`; events without one never appear. Each event has only `id`, `source`, `action`, `outcome`, `customer_description` and `occurred_at`. Actor (including staff names), IP address, user agent, Target, metadata and the admin `description` are never returned. Ordering and cursor paging match the Administrator list; a cursor only pages within the queried Subject's own events.
+
+## Export
+
+`GET /events/export` requires `read:admin`; `read:customer` and write keys receive 403. It streams the Audit Events matching the same filters as `GET /events` (`source`, `module`, `action`, `actor_type`, `actor_id`, `subject_type`, `subject_id`, `outcome`, `q`), newest first, as a download. There is no `limit` or `cursor`.
+
+Required parameters, otherwise 400 with a message naming them:
+
+- `format`: `csv` or `json`. CSV has a header row and one flat row per event (Actor, Target and Subject split into `_type`, `_id` and `_display_name` columns). JSON is `{ "events": [...] }` with the same event objects as the list.
+- `from` and `to`: inclusive ISO 8601 bounds on `occurred_at`; `from` must not follow `to`.
+- `requested_by_id` and `requested_by_name`: the portal Administrator asking. Keys carry no identity, so the caller supplies it and it is recorded as the Actor of the export event.
+
+An export matching more than 50,000 events is refused with 413 and a message giving the matching count; narrow the date range or filters. Nothing is streamed and no event is written.
+
+Every accepted export first records an `audit_log.exported` Audit Event (Source Authentication, Actor from `requested_by_*`, Target `audit_log`) whose `metadata` holds `format`, `row_count` and the `filters` used, including `from` and `to`. That event is never part of its own export.
