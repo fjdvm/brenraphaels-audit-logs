@@ -4,7 +4,7 @@ The company's single, append-only record of who did what, where, and when across
 
 ## Documentation
 
-- [API contract](docs/api-contract.md): every endpoint, key role, filter and error, with a worked example each. Start here if you are building the portal tab, the Ecommerce activity page or a Source's integration.
-- [Team guide (HTML)](docs/guide/index.html): the same contract as a browsable page. The running service serves it at `GET /docs` without a key; or open the file directly in a browser.
+- **[API guide](docs/guide/index.html)**: start here. Every endpoint, key role, filter and error with a worked example each, for the authors of the portal tab, the Ecommerce activity page and each Source's integration. The running service serves it at `GET /docs` (no key needed); locally, run `npm run dev` and open `http://localhost:3000/docs`, or open the file directly in a browser.
+- [API contract (Markdown)](docs/api-contract.md): the same contract as plain text, the reference the guide mirrors.
 - [Setup, deployment and operations](docs/api.md)
 - [Architecture decisions](docs/adr/)
