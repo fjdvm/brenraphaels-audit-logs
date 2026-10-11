@@ -57,7 +57,7 @@ export function registerExport(app: Express, pool: Pool, options: { maxRows?: nu
     if (!parsed.success) { res.status(400).json({ error: 'Invalid export request: from, to, format, requested_by_id and requested_by_name are required', details: parsed.error.issues }); return; }
     const { format, requested_by_id, requested_by_name, ...filters } = parsed.data;
     // Events recorded after this instant are outside the export, so the count, the stream and the export event itself agree.
-    const { rows: [clock] } = await pool.query<{ cutoff: string }>('SELECT now()::text AS cutoff');
+    const { rows: [clock] } = await db.execute<{ cutoff: string }>(sql`SELECT now()::text AS cutoff`);
     const conditions = [...filterConditions(filters), sql`${events.recorded_at} <= ${clock!.cutoff}::timestamptz`];
     const [counted] = await db.select({ total: sql<number>`count(*)::int` }).from(events).where(and(...conditions));
     const total = counted?.total ?? 0;
