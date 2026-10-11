@@ -67,6 +67,8 @@ Optional exact-match filters: `source`, `module`, `action`, `actor_type`, `actor
 
 Example: `GET /events?source=CRMS&module=Tickets&outcome=failure&from=2025-01-01T00:00:00Z&limit=25`.
 
+`GET /events/stats?group_by=<day|source|action|outcome>` requires `read:admin` and returns `{ "group_by": "...", "buckets": [{ "key": "...", "count": 12 }, ...] }` for the Administrator charts. It accepts the same filters as `GET /events` (including `q`, `from` and `to`) but no `cursor`; `group_by` is required. `day` buckets are UTC dates (`YYYY-MM-DD`) in ascending order and omit days with no events; `source`, `action` and `outcome` buckets are ordered by count descending, then key. `limit` (1–100, default 10) caps the top Actions and is ignored for the other groupings. For repeated failed logins use `group_by=day&outcome=failure&source=Authentication&action=user.login`. Invalid parameters return 400; other scopes get 403.
+
 `GET /events/valid-values` requires `read:admin` and returns `{ "sources": [{ "source": "CRMS", "modules": [...], "actions": [...] }, ...] }` for all eight Sources, including Sources with no events. Sources without Modules return an empty array. Sources and Actions use the same catalog as write validation; Modules list the portal’s seeded names. Writes continue to accept any nonempty Module for the four business Sources.
 
 Write keys and `read:customer` keys receive 403 on both endpoints. No PUT, PATCH or DELETE route exists.
