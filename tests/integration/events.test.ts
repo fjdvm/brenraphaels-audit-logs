@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import request from 'supertest';
 import { Pool } from 'pg';
 import { createApp } from '../../src/http/app.ts';
-import { createKey, revokeKey } from '../../src/api-keys/keys.ts';
+import { createKey, hashKey, revokeKey, rotateKey } from '../../src/api-keys/keys.ts';
 
 const owner = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
 const runtime = new Pool({ connectionString: process.env.TEST_DATABASE_URL_RUNTIME });
@@ -37,7 +37,6 @@ test('Authentication writes an Audit Event and an Administrator reads every fiel
 
 test('missing, unknown and revoked keys cannot write or read Audit Events', async () => {
   const revoked = await createKey(owner, 'write:Authentication');
-  const { hashKey } = await import('../../src/api-keys/keys.ts');
   await revokeKey(owner, hashKey(revoked));
   for (const key of [undefined, 'unknown-key', revoked]) {
     const write = request(app).post('/events');
@@ -70,7 +69,6 @@ test('runtime cannot UPDATE or DELETE Audit Events or alter API keys', async () 
 });
 
 test('API keys are stored only as hashes', async () => {
-  const { hashKey } = await import('../../src/api-keys/keys.ts');
   const stored = await owner.query('SELECT hash FROM api_keys WHERE hash = $1', [hashKey(writeKey)]);
   expect(stored.rows).toEqual([{ hash: hashKey(writeKey) }]);
   expect((await owner.query('SELECT hash FROM api_keys WHERE hash = $1', [writeKey])).rowCount).toBe(0);
@@ -404,6 +402,43 @@ test('pagination preserves microseconds across concurrent writes with shared occ
   } while (cursor);
   expect(seen).toEqual(complete.body.events.map((item: { id: string }) => item.id));
   expect(new Set(seen).size).toBe(5);
+});
+
+test('revoking a key makes its very next request fail and leaves events untouched', async () => {
+  const key = await createKey(owner, 'write:Authentication');
+  const written = await request(app).post('/events').auth(key, { type: 'bearer' }).send(event);
+  expect(written.status).toBe(201);
+  const before = await owner.query('SELECT count(*)::int AS n FROM audit_events');
+  await revokeKey(owner, hashKey(key));
+  expect((await request(app).post('/events').auth(key, { type: 'bearer' }).send(event)).status).toBe(401);
+  expect((await owner.query('SELECT count(*)::int AS n FROM audit_events')).rows).toEqual(before.rows);
+  expect((await request(app).get(`/events/${written.body.id}`).auth(readKey, { type: 'bearer' })).status).toBe(200);
+});
+
+test('rotating a key revokes the old one by default and stores only the new hash', async () => {
+  const old = await createKey(owner, 'write:Authentication');
+  const rotated = await rotateKey(owner, hashKey(old));
+  expect(rotated).not.toBe(old);
+  expect((await request(app).post('/events').auth(old, { type: 'bearer' }).send(event)).status).toBe(401);
+  expect((await request(app).post('/events').auth(rotated, { type: 'bearer' }).send(event)).status).toBe(201);
+  expect((await owner.query('SELECT scope FROM api_keys WHERE hash = $1', [hashKey(rotated)])).rows).toEqual([{ scope: 'write:Authentication' }]);
+  expect((await owner.query('SELECT 1 FROM api_keys WHERE hash = $1', [rotated])).rowCount).toBe(0);
+});
+
+test('rotating with overlap keeps the old key working until it is revoked', async () => {
+  const old = await createKey(owner, 'write:Authentication');
+  const rotated = await rotateKey(owner, hashKey(old), { overlap: true });
+  expect((await request(app).post('/events').auth(old, { type: 'bearer' }).send(event)).status).toBe(201);
+  expect((await request(app).post('/events').auth(rotated, { type: 'bearer' }).send(event)).status).toBe(201);
+  await revokeKey(owner, hashKey(old));
+  expect((await request(app).post('/events').auth(old, { type: 'bearer' }).send(event)).status).toBe(401);
+});
+
+test('unknown or already revoked keys cannot be rotated', async () => {
+  await expect(rotateKey(owner, hashKey('nope'))).rejects.toThrow('Unknown key hash');
+  const old = await createKey(owner, 'write:Authentication');
+  await revokeKey(owner, hashKey(old));
+  await expect(rotateKey(owner, hashKey(old))).rejects.toThrow('Key is revoked');
 });
 
 test('Administrator free-text search matches description and Actor or Subject names, case-insensitively, with filters and paging', async () => {

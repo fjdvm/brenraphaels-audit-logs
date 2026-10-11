@@ -4,7 +4,7 @@ Requires Node 24 or later. Run `npm ci`, copy `.env.example` to `.env` and fill 
 
 Run `npm run db:migrate` once on a fresh database. The migration creates the tables and the two restricted login roles. As owner, assign each role a strong password using your database provider's secure tooling, then set the runtime and anonymization URLs with those credentials. Existing databases/roles are deliberately rejected rather than silently reusing unknown grants. To upgrade a database already running migration 0001, apply `migrations/0002_write_contract.sql` once as the database owner (for example, with `psql "$DATABASE_URL_MIGRATIONS" -v ON_ERROR_STOP=1 -1 -f migrations/0002_write_contract.sql`). Keep the owner credentials out of the deployed runtime environment.
 
-`npm run key -- create write:Authentication` and `npm run key -- create read:admin` print a new random plaintext key once. Only its SHA-256 hash is persisted; store the plaintext securely at creation. `npm run key -- revoke <sha256-hash>` revokes it. Run operator commands with the owner connection, never the runtime role.
+`npm run key -- create write:Authentication` and `npm run key -- create read:admin` print a new random plaintext key once. Only its SHA-256 hash is persisted; store the plaintext securely at creation. `npm run key -- revoke <sha256-hash>` revokes it; the very next request with that key returns 401. `npm run key -- rotate <sha256-hash>` prints a replacement key with the same scope once (storing only its hash) and revokes the old key; add `--overlap` to keep the old key working until you revoke it. Revoking and rotating only change `api_keys` and never touch Audit Events. Run operator commands with the owner connection, never the runtime role.
 
 Start with `npm run dev`, or `npm run build` then `npm start`; these load `.env`. Authenticate with `Authorization: Bearer <key>`.
 
@@ -46,6 +46,16 @@ A successful batch returns 201 with `{ "events": [{ "id": "<uuid>" }, ...] }` in
 `GET /events/:id` requires `read:admin` and returns the fields above plus `id` and `recorded_at`; absent optional fields are null. Returns 404 for an unknown event, 400 for invalid input/Action/id, 401 for missing/unknown/revoked keys, 403 for the wrong scope and 413 for bodies over 16 KB. No update or delete endpoint exists.
 
 For tests, use the existing Neon connections in `.env` (see `AGENTS.md`); set `TEST_DATABASE_URL` from `DATABASE_URL_MIGRATIONS` and `TEST_DATABASE_URL_RUNTIME` from `DATABASE_URL` when dedicated test URLs are unset. Set `TEST_DATABASE_URL_ANONYMIZE` from `DATABASE_URL_ANONYMIZE` when the owner cannot `SET ROLE`. Run `npm test -- --testTimeout=120000 --hookTimeout=30000` (or `node --env-file=.env node_modules/vitest/vitest.mjs run --testTimeout=120000 --hookTimeout=30000`) with those test URLs exported; the longer timeout accommodates Neon network latency. Tests call Express in-process against real Postgres and create events/keys; they do not clean or delete history. Search/export, Customer reads and the anonymization job are separate work.
+
+## Deployment (Vercel + Neon)
+
+The service runs as a Vercel Function (the Express app in `src/server.ts`) against the Neon project. Set the connection strings in the Vercel project environment (production and preview), never in the repo:
+
+- `DATABASE_URL`: pooled `audit_runtime` URL. The only database credential the deployed API needs.
+- `DATABASE_URL_MIGRATIONS`: owner URL. Use it from an operator machine for `npm run db:migrate` and `npm run key`; do not set it on Vercel.
+- `DATABASE_URL_ANONYMIZE`: `audit_anonymize` URL for the separate anonymization job; do not set it on the API deployment.
+
+Check a deployment with `BASE_URL=https://<deployment> WRITE_KEY=<write:Authentication key> ADMIN_KEY=<read:admin key> npm run smoke`. It writes one Audit Event and reads it back with the admin key. Create the keys with `npm run key`, and revoke them afterwards.
 
 ## Administrator list and filter values
 
