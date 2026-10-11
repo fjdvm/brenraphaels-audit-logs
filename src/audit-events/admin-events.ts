@@ -2,7 +2,7 @@ import type { Express, RequestHandler } from 'express';
 import type { Pool } from 'pg';
 import { z } from 'zod';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { events } from '../db/schema.ts';
@@ -17,6 +17,7 @@ const querySchema = z.object({
   source: z.string().min(1).optional(), module: z.string().min(1).optional(), action: z.string().min(1).optional(),
   actor_type: z.string().min(1).optional(), actor_id: z.string().min(1).optional(),
   subject_type: z.string().min(1).optional(), subject_id: z.string().min(1).optional(),
+  q: z.string().trim().min(1).max(200).optional(),
   outcome: z.enum(['success', 'failure']).optional(), from: timestamp.optional(), to: timestamp.optional(),
 }).strict().refine(value => !value.from || !value.to || Date.parse(value.from) <= Date.parse(value.to), { message: 'from must precede to' });
 
@@ -40,6 +41,10 @@ export function registerAdministratorList(app: Express, pool: Pool) {
     const conditions: SQL[] = [];
     for (const column of ['source', 'module', 'action', 'actor_type', 'actor_id', 'subject_type', 'subject_id', 'outcome'] as const) {
       if (query[column] !== undefined) conditions.push(eq(events[column], query[column]));
+    }
+    if (query.q) {
+      const pattern = `%${query.q.replace(/[\\%_]/g, '\\$&')}%`;
+      conditions.push(or(ilike(events.description, pattern), ilike(events.actor_display_name, pattern), ilike(events.subject_display_name, pattern))!);
     }
     // Bound strings cast to timestamptz keep the microseconds a JavaScript Date would truncate.
     if (query.from) conditions.push(sql`${events.occurred_at} >= ${query.from}::timestamptz`);

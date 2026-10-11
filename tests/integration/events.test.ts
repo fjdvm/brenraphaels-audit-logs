@@ -440,3 +440,34 @@ test('unknown or already revoked keys cannot be rotated', async () => {
   await revokeKey(owner, hashKey(old));
   await expect(rotateKey(owner, hashKey(old))).rejects.toThrow('Key is revoked');
 });
+
+test('Administrator free-text search matches description and Actor or Subject names, case-insensitively, with filters and paging', async () => {
+  const token = `Zq${crypto.randomUUID().slice(0, 8)}`;
+  const post = async (change: object) => {
+    const written = await request(app).post('/events').auth(writeKey, { type: 'bearer' }).send({ ...event, description: 'Unrelated.', ...change });
+    expect(written.status).toBe(201);
+    return written.body.id as string;
+  };
+  const asActor = await post({ actor: { type: 'user', id: crypto.randomUUID(), display_name: `${token} Smith` }, occurred_at: '2025-05-01T00:00:00Z' });
+  const asSubject = await post({ subject: { type: 'user', id: crypto.randomUUID(), display_name: `Dr ${token}` }, occurred_at: '2025-05-02T00:00:00Z' });
+  const inDescription = await post({ description: `Reset password for ${token.toLowerCase()} today`, outcome: 'failure', occurred_at: '2025-05-03T00:00:00Z' });
+  await post({ occurred_at: '2025-05-04T00:00:00Z' });
+  const search = (query: object) => request(app).get('/events').auth(readKey, { type: 'bearer' }).query(query);
+  const ids = async (query: object) => (await search(query)).body.events.map((item: { id: string }) => item.id);
+
+  expect(await ids({ q: token.toUpperCase() })).toEqual([inDescription, asSubject, asActor]);
+  expect(await ids({ q: `${token} smith` })).toEqual([asActor]);
+  expect(await ids({ q: `password for ${token}` })).toEqual([inDescription]);
+  expect(await ids({ q: token, outcome: 'failure' })).toEqual([inDescription]);
+  expect(await ids({ q: '%' })).toEqual([]);
+
+  const seen: string[] = [];
+  let cursor: string | null = null;
+  do {
+    const page = await search({ q: token, limit: 1, ...(cursor ? { cursor } : {}) });
+    seen.push(...page.body.events.map((item: { id: string }) => item.id));
+    cursor = page.body.next_cursor;
+  } while (cursor);
+  expect(seen).toEqual([inDescription, asSubject, asActor]);
+  expect((await search({ q: '   ' })).status).toBe(400);
+});
