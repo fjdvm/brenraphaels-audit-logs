@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { Pool } from 'pg';
 import { keys } from '../db/schema.ts';
 import { sources } from '../audit-events/catalog.ts';
@@ -17,4 +17,22 @@ export async function createKey(pool: Pool, scope: string) {
 export async function revokeKey(pool: Pool, hash: string) {
   const revoked = await drizzle(pool).update(keys).set({ revoked_at: new Date() }).where(eq(keys.hash, hash)).returning();
   if (!revoked.length) throw new Error('Unknown key hash');
+}
+export async function rotateKey(pool: Pool, hash: string, options: { overlap?: boolean } = {}) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const tx = drizzle(client);
+    const [old] = await tx.select().from(keys).where(eq(keys.hash, hash)).for('update');
+    if (!old) throw new Error('Unknown key hash');
+    if (old.revoked_at) throw new Error('Key is revoked');
+    const key = randomBytes(32).toString('base64url');
+    await tx.insert(keys).values({ hash: hashKey(key), scope: old.scope });
+    if (!options.overlap) await tx.update(keys).set({ revoked_at: new Date() }).where(and(eq(keys.hash, hash), isNull(keys.revoked_at)));
+    await client.query('COMMIT');
+    return key;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally { client.release(); }
 }

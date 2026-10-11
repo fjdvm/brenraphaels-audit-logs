@@ -405,3 +405,44 @@ test('pagination preserves microseconds across concurrent writes with shared occ
   expect(seen).toEqual(complete.body.events.map((item: { id: string }) => item.id));
   expect(new Set(seen).size).toBe(5);
 });
+
+test('revoking a key makes its very next request fail and leaves events untouched', async () => {
+  const { hashKey } = await import('../../src/api-keys/keys.ts');
+  const key = await createKey(owner, 'write:Authentication');
+  const written = await request(app).post('/events').auth(key, { type: 'bearer' }).send(event);
+  expect(written.status).toBe(201);
+  const before = await owner.query('SELECT count(*)::int AS n FROM audit_events');
+  await revokeKey(owner, hashKey(key));
+  expect((await request(app).post('/events').auth(key, { type: 'bearer' }).send(event)).status).toBe(401);
+  expect((await owner.query('SELECT count(*)::int AS n FROM audit_events')).rows).toEqual(before.rows);
+  expect((await request(app).get(`/events/${written.body.id}`).auth(readKey, { type: 'bearer' })).status).toBe(200);
+});
+
+test('rotating a key revokes the old one by default and stores only the new hash', async () => {
+  const { hashKey, rotateKey } = await import('../../src/api-keys/keys.ts');
+  const old = await createKey(owner, 'write:Authentication');
+  const rotated = await rotateKey(owner, hashKey(old));
+  expect(rotated).not.toBe(old);
+  expect((await request(app).post('/events').auth(old, { type: 'bearer' }).send(event)).status).toBe(401);
+  expect((await request(app).post('/events').auth(rotated, { type: 'bearer' }).send(event)).status).toBe(201);
+  expect((await owner.query('SELECT scope FROM api_keys WHERE hash = $1', [hashKey(rotated)])).rows).toEqual([{ scope: 'write:Authentication' }]);
+  expect((await owner.query('SELECT 1 FROM api_keys WHERE hash = $1', [rotated])).rowCount).toBe(0);
+});
+
+test('rotating with overlap keeps the old key working until it is revoked', async () => {
+  const { hashKey, rotateKey } = await import('../../src/api-keys/keys.ts');
+  const old = await createKey(owner, 'write:Authentication');
+  const rotated = await rotateKey(owner, hashKey(old), { overlap: true });
+  expect((await request(app).post('/events').auth(old, { type: 'bearer' }).send(event)).status).toBe(201);
+  expect((await request(app).post('/events').auth(rotated, { type: 'bearer' }).send(event)).status).toBe(201);
+  await revokeKey(owner, hashKey(old));
+  expect((await request(app).post('/events').auth(old, { type: 'bearer' }).send(event)).status).toBe(401);
+});
+
+test('unknown or already revoked keys cannot be rotated', async () => {
+  const { hashKey, rotateKey } = await import('../../src/api-keys/keys.ts');
+  await expect(rotateKey(owner, hashKey('nope'))).rejects.toThrow('Unknown key hash');
+  const old = await createKey(owner, 'write:Authentication');
+  await revokeKey(owner, hashKey(old));
+  await expect(rotateKey(owner, hashKey(old))).rejects.toThrow('Key is revoked');
+});
