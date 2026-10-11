@@ -14,14 +14,39 @@ type Identity = { type: string; id: string; display_name: string };
 
 export const timestamp = z.iso.datetime({ offset: true });
 export const cursorSchema = z.object({ occurred_at: timestamp, recorded_at: timestamp, id: z.uuid() }).strict();
-const querySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().max(1024).optional(),
+const filterShape = {
   source: z.string().min(1).optional(), module: z.string().min(1).optional(), action: z.string().min(1).optional(),
   actor_type: z.string().min(1).optional(), actor_id: z.string().min(1).optional(),
   subject_type: z.string().min(1).optional(), subject_id: z.string().min(1).optional(),
   q: z.string().trim().min(1).max(200).optional(),
   outcome: z.enum(['success', 'failure']).optional(), from: timestamp.optional(), to: timestamp.optional(),
-}).strict().refine(value => !value.from || !value.to || Date.parse(value.from) <= Date.parse(value.to), { message: 'from must precede to' });
+};
+type Filters = z.infer<z.ZodObject<typeof filterShape>>;
+const datesOrdered = (value: Filters) => !value.from || !value.to || Date.parse(value.from) <= Date.parse(value.to);
+const datesMessage = { message: 'from must precede to' };
+const querySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().max(1024).optional(), ...filterShape,
+}).strict().refine(datesOrdered, datesMessage);
+// Source and outcome have far fewer values than this, so the cap never truncates them.
+const maxBuckets = 100;
+const statsSchema = z.object({
+  group_by: z.enum(['day', 'source', 'action', 'outcome']), limit: z.coerce.number().int().min(1).max(100).default(10), ...filterShape,
+}).strict().refine(datesOrdered, datesMessage);
+
+function filterConditions(query: Filters): SQL[] {
+  const conditions: SQL[] = [];
+  for (const column of ['source', 'module', 'action', 'actor_type', 'actor_id', 'subject_type', 'subject_id', 'outcome'] as const) {
+    if (query[column] !== undefined) conditions.push(eq(events[column], query[column]));
+  }
+  if (query.q) {
+    const pattern = `%${query.q.replace(/[\\%_]/g, '\\$&')}%`;
+    conditions.push(or(ilike(events.description, pattern), ilike(events.actor_display_name, pattern), ilike(events.subject_display_name, pattern))!);
+  }
+  // Bound strings cast to timestamptz keep the microseconds a JavaScript Date would truncate.
+  if (query.from) conditions.push(sql`${events.occurred_at} >= ${query.from}::timestamptz`);
+  if (query.to) conditions.push(sql`${events.occurred_at} <= ${query.to}::timestamptz`);
+  return conditions;
+}
 
 export const requireAdministrator: RequestHandler = (_req, res, next) => {
   if (res.locals.scope !== 'read:admin') { res.status(403).json({ error: 'Administrator read key required' }); return; }
@@ -31,6 +56,17 @@ export const requireAdministrator: RequestHandler = (_req, res, next) => {
 export function registerAdministratorList(app: Express, pool: Pool) {
   const db = drizzle(pool);
   app.get('/events/valid-values', requireAdministrator, (_req, res) => { res.json({ sources: catalog }); });
+  app.get('/events/stats', requireAdministrator, async (req, res) => {
+    const parsed = statsSchema.safeParse(req.query);
+    if (!parsed.success) { res.status(400).json({ error: 'Invalid filters', details: parsed.error.issues }); return; }
+    const { group_by, limit, ...filters } = parsed.data;
+    const key = group_by === 'day' ? sql<string>`to_char(${events.occurred_at} AT TIME ZONE 'UTC', 'YYYY-MM-DD')` : events[group_by];
+    const count = sql<number>`count(*)::int`;
+    const query = db.select({ key, count }).from(events).where(and(...filterConditions(filters))).groupBy(key);
+    const buckets = group_by === 'day' ? await query.orderBy(key)
+      : await query.orderBy(desc(count), key).limit(group_by === 'action' ? limit : maxBuckets);
+    res.json({ group_by, buckets });
+  });
   app.get('/events', requireAdministrator, async (req, res) => {
     const parsed = querySchema.safeParse(req.query);
     if (!parsed.success) { res.status(400).json({ error: 'Invalid filters', details: parsed.error.issues }); return; }
@@ -40,17 +76,7 @@ export function registerAdministratorList(app: Express, pool: Pool) {
       try { cursor = cursorSchema.parse(JSON.parse(Buffer.from(query.cursor, 'base64url').toString('utf8'))); }
       catch { res.status(400).json({ error: 'Invalid cursor' }); return; }
     }
-    const conditions: SQL[] = [];
-    for (const column of ['source', 'module', 'action', 'actor_type', 'actor_id', 'subject_type', 'subject_id', 'outcome'] as const) {
-      if (query[column] !== undefined) conditions.push(eq(events[column], query[column]));
-    }
-    if (query.q) {
-      const pattern = `%${query.q.replace(/[\\%_]/g, '\\$&')}%`;
-      conditions.push(or(ilike(events.description, pattern), ilike(events.actor_display_name, pattern), ilike(events.subject_display_name, pattern))!);
-    }
-    // Bound strings cast to timestamptz keep the microseconds a JavaScript Date would truncate.
-    if (query.from) conditions.push(sql`${events.occurred_at} >= ${query.from}::timestamptz`);
-    if (query.to) conditions.push(sql`${events.occurred_at} <= ${query.to}::timestamptz`);
+    const conditions = filterConditions(query);
     if (cursor) conditions.push(sql`(${events.occurred_at}, ${events.recorded_at}, ${events.id}) < (${cursor.occurred_at}::timestamptz, ${cursor.recorded_at}::timestamptz, ${cursor.id}::uuid)`);
     const identity = (type: PgColumn, id: PgColumn, displayName: PgColumn) => sql<Identity>`json_build_object('type', ${type}, 'id', ${id}, 'display_name', ${displayName})`;
     const rows = await db.select({
