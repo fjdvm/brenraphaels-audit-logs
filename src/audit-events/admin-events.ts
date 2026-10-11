@@ -8,10 +8,12 @@ import type { PgColumn } from 'drizzle-orm/pg-core';
 import { events } from '../db/schema.ts';
 import { catalog } from './catalog.ts';
 
+export const utc = (column: PgColumn) => sql<string>`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
 type Identity = { type: string; id: string; display_name: string };
 
-const timestamp = z.iso.datetime({ offset: true });
-const cursorSchema = z.object({ occurred_at: timestamp, recorded_at: timestamp, id: z.uuid() }).strict();
+export const timestamp = z.iso.datetime({ offset: true });
+export const cursorSchema = z.object({ occurred_at: timestamp, recorded_at: timestamp, id: z.uuid() }).strict();
 const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().max(1024).optional(),
   source: z.string().min(1).optional(), module: z.string().min(1).optional(), action: z.string().min(1).optional(),
@@ -51,7 +53,6 @@ export function registerAdministratorList(app: Express, pool: Pool) {
     if (query.to) conditions.push(sql`${events.occurred_at} <= ${query.to}::timestamptz`);
     if (cursor) conditions.push(sql`(${events.occurred_at}, ${events.recorded_at}, ${events.id}) < (${cursor.occurred_at}::timestamptz, ${cursor.recorded_at}::timestamptz, ${cursor.id}::uuid)`);
     const identity = (type: PgColumn, id: PgColumn, displayName: PgColumn) => sql<Identity>`json_build_object('type', ${type}, 'id', ${id}, 'display_name', ${displayName})`;
-    const utc = (column: PgColumn) => sql<string>`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
     const rows = await db.select({
       id: events.id, source: events.source, module: events.module, action: events.action, outcome: events.outcome,
       actor: identity(events.actor_type, events.actor_id, events.actor_display_name),

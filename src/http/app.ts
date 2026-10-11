@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { events, keys } from '../db/schema.ts';
 import { hashKey } from '../api-keys/keys.ts';
 import { actionCatalog, sources } from '../audit-events/catalog.ts';
+import { registerCustomerActivity } from '../audit-events/customer-events.ts';
 import { registerAdministratorList, requireAdministrator } from '../audit-events/admin-events.ts';
 function validText(value: string): boolean { return !/[\u0000\uD800-\uDFFF]/u.test(value); }
 const text = z.string().min(1).refine(validText, 'Invalid text');
@@ -111,6 +112,7 @@ export function createApp(pool: Pool, options: { rateLimitPerSecond?: number } =
     res.status(201).json(saved);
   });
   registerAdministratorList(app, pool);
+  registerCustomerActivity(app, pool);
   app.get('/events/:id', requireAdministrator, async (req, res) => {
     const id = z.uuid().safeParse(req.params.id);
     if (!id.success) { res.status(400).json({ error: 'Invalid event id' }); return; }

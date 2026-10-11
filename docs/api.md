@@ -45,7 +45,7 @@ A successful batch returns 201 with `{ "events": [{ "id": "<uuid>" }, ...] }` in
 
 `GET /events/:id` requires `read:admin` and returns the fields above plus `id` and `recorded_at`; absent optional fields are null. Returns 404 for an unknown event, 400 for invalid input/Action/id, 401 for missing/unknown/revoked keys, 403 for the wrong scope and 413 for bodies over 16 KB. No update or delete endpoint exists.
 
-For tests, use the existing Neon connections in `.env` (see `AGENTS.md`); set `TEST_DATABASE_URL` from `DATABASE_URL_MIGRATIONS` and `TEST_DATABASE_URL_RUNTIME` from `DATABASE_URL` when dedicated test URLs are unset. Set `TEST_DATABASE_URL_ANONYMIZE` from `DATABASE_URL_ANONYMIZE` when the owner cannot `SET ROLE`. Run `npm test -- --testTimeout=120000 --hookTimeout=30000` (or `node --env-file=.env node_modules/vitest/vitest.mjs run --testTimeout=120000 --hookTimeout=30000`) with those test URLs exported; the longer timeout accommodates Neon network latency. Tests call Express in-process against real Postgres and create events/keys; they do not clean or delete history. Search/export, Customer reads and the anonymization job are separate work.
+For tests, use the existing Neon connections in `.env` (see `AGENTS.md`); set `TEST_DATABASE_URL` from `DATABASE_URL_MIGRATIONS` and `TEST_DATABASE_URL_RUNTIME` from `DATABASE_URL` when dedicated test URLs are unset. Set `TEST_DATABASE_URL_ANONYMIZE` from `DATABASE_URL_ANONYMIZE` when the owner cannot `SET ROLE`. Run `npm test -- --testTimeout=120000 --hookTimeout=30000` (or `node --env-file=.env node_modules/vitest/vitest.mjs run --testTimeout=120000 --hookTimeout=30000`) with those test URLs exported; the longer timeout accommodates Neon network latency. Tests call Express in-process against real Postgres and create events/keys; they do not clean or delete history. Export and the anonymization job are separate work.
 
 ## Deployment (Vercel + Neon)
 
@@ -72,3 +72,9 @@ Example: `GET /events?source=CRMS&module=Tickets&outcome=failure&from=2025-01-01
 Write keys and `read:customer` keys receive 403 on both endpoints. No PUT, PATCH or DELETE route exists.
 
 On a database with the write-contract migration applied, run `npm run db:migrate -- 0003_administrator_list.sql` with the owner connection to add the pagination index. On a fresh database, `npm run db:migrate` applies all three migrations. Migrations are one-time operations; record which ones have run before applying them.
+
+## Customer activity read
+
+`GET /events/customer-activity` requires `read:customer` (the Ecommerce backend's key); admin and write keys receive 403. `subject_type` and `subject_id` are both required: a query without a Subject returns 400. The only other parameters are `limit` (1–100, default 50) and `cursor`; any other parameter returns 400, so no filter can reach another Customer's events.
+
+Returns `{ "events": [...], "next_cursor": "..." }` for that Subject's Audit Events that have a `customer_description`; events without one never appear. Each event has only `id`, `source`, `action`, `outcome`, `customer_description` and `occurred_at`. Actor (including staff names), IP address, user agent, Target, metadata and the admin `description` are never returned. Ordering and cursor paging match the Administrator list; a cursor only pages within the queried Subject's own events.
