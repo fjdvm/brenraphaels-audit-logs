@@ -10,6 +10,7 @@ const querySchema = z.object({
   source: z.string().min(1).optional(), module: z.string().min(1).optional(), action: z.string().min(1).optional(),
   actor_type: z.string().min(1).optional(), actor_id: z.string().min(1).optional(),
   subject_type: z.string().min(1).optional(), subject_id: z.string().min(1).optional(),
+  q: z.string().trim().min(1).max(200).optional(),
   outcome: z.enum(['success', 'failure']).optional(), from: timestamp.optional(), to: timestamp.optional(),
 }).strict().refine(value => !value.from || !value.to || Date.parse(value.from) <= Date.parse(value.to), { message: 'from must precede to' });
 
@@ -34,6 +35,10 @@ export function registerAdministratorList(app: Express, pool: Pool) {
     const conditions: string[] = [];
     for (const column of ['source', 'module', 'action', 'actor_type', 'actor_id', 'subject_type', 'subject_id', 'outcome'] as const) {
       if (query[column] !== undefined) conditions.push(`${column} = ${parameter(query[column])}`);
+    }
+    if (query.q) {
+      const pattern = parameter(`%${query.q.replace(/[\\%_]/g, '\\$&')}%`);
+      conditions.push(`(description ILIKE ${pattern} OR actor_display_name ILIKE ${pattern} OR subject_display_name ILIKE ${pattern})`);
     }
     if (query.from) conditions.push(`occurred_at >= ${parameter(query.from)}::timestamptz`);
     if (query.to) conditions.push(`occurred_at <= ${parameter(query.to)}::timestamptz`);
