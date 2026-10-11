@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:migrate": "node --env-file=.env scripts/migrate.ts",
-    "key": "node --env-file=.env scripts/key.ts"
+    "key": "node --env-file=.env scripts/key.ts",
+    "smoke": "node scripts/smoke.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.4",
