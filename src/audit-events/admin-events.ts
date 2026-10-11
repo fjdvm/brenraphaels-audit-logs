@@ -27,6 +27,8 @@ const datesMessage = { message: 'from must precede to' };
 const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().max(1024).optional(), ...filterShape,
 }).strict().refine(datesOrdered, datesMessage);
+// Source and outcome have far fewer values than this, so the cap never truncates them.
+const maxBuckets = 100;
 const statsSchema = z.object({
   group_by: z.enum(['day', 'source', 'action', 'outcome']), limit: z.coerce.number().int().min(1).max(100).default(10), ...filterShape,
 }).strict().refine(datesOrdered, datesMessage);
@@ -62,7 +64,7 @@ export function registerAdministratorList(app: Express, pool: Pool) {
     const count = sql<number>`count(*)::int`;
     const query = db.select({ key, count }).from(events).where(and(...filterConditions(filters))).groupBy(key);
     const buckets = group_by === 'day' ? await query.orderBy(key)
-      : await query.orderBy(desc(count), key).limit(group_by === 'action' ? limit : 100);
+      : await query.orderBy(desc(count), key).limit(group_by === 'action' ? limit : maxBuckets);
     res.json({ group_by, buckets });
   });
   app.get('/events', requireAdministrator, async (req, res) => {
