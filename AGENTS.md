@@ -6,7 +6,7 @@ Issues are tracked in GitHub Issues (fjdvm/br-audit-logs-service) via the `gh` C
 
 ### Completing tickets
 
-A ticket implementation is complete only after validation and code review pass, the changes are committed and pushed, and a pull request is opened against the default branch. Include `Closes #<issue-number>` in the PR body so GitHub automatically closes the connected issue when the PR merges. Use a fully qualified issue reference for issues in another repository. Report the PR link to the user.
+Work on a feature branch for implementation tasks. A ticket implementation is complete only after validation and code review pass, the changes are committed and pushed, and a pull request is opened against the default branch. Include `Closes #<issue-number>` in the PR body so GitHub automatically closes the connected issue when the PR merges. Use a fully qualified issue reference for issues in another repository. Report the PR link to the user. Leave merging to the user unless explicitly instructed otherwise.
 
 ### Triage labels
 

@@ -2,12 +2,13 @@ import express from 'express';
 import type { ErrorRequestHandler } from 'express';
 import type { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { events, keys } from './schema.ts';
 import { hashKey } from './keys.ts';
 import { actionCatalog, sources } from './catalog.ts';
+import { registerAdministratorList, requireAdministrator } from './admin-events.ts';
 function validText(value: string): boolean { return !/[\u0000\uD800-\uDFFF]/u.test(value); }
 const text = z.string().min(1).refine(validText, 'Invalid text');
 const identity = z.object({ type: text, id: text, display_name: text }).strict();
@@ -79,7 +80,7 @@ export function createApp(pool: Pool, options: { rateLimitPerSecond?: number } =
       target_type: event.target.type, target_id: event.target.id, target_display_name: event.target.display_name,
       subject_type: event.subject?.type, subject_id: event.subject?.id, subject_display_name: event.subject?.display_name,
       description: event.description, customer_description: event.customer_description,
-      occurred_at: new Date(event.occurred_at), metadata: event.metadata, module: event.module,
+      occurred_at: sql`${event.occurred_at}::timestamptz`, metadata: event.metadata, module: event.module,
       ip_address: event.ip_address, user_agent: event.user_agent, request_id: event.request_id, idempotency_key: event.idempotency_key,
     }).onConflictDoNothing({ target: [events.source, events.idempotency_key] }).returning({ id: events.id });
     if (!saved && event.idempotency_key !== undefined) {
@@ -109,10 +110,11 @@ export function createApp(pool: Pool, options: { rateLimitPerSecond?: number } =
     const saved = await db.transaction(transaction => saveEvent(transaction, event));
     res.status(201).json(saved);
   });
-  app.get('/events/:id', async (req, res) => {
-    if (res.locals.scope !== 'read:admin') { res.status(403).json({ error: 'Administrator read key required' }); return; }
-    if (!z.uuid().safeParse(req.params.id).success) { res.status(400).json({ error: 'Invalid event id' }); return; }
-    const [event] = await db.select().from(events).where(eq(events.id, req.params.id));
+  registerAdministratorList(app, pool);
+  app.get('/events/:id', requireAdministrator, async (req, res) => {
+    const id = z.uuid().safeParse(req.params.id);
+    if (!id.success) { res.status(400).json({ error: 'Invalid event id' }); return; }
+    const [event] = await db.select().from(events).where(eq(events.id, id.data));
     if (!event) { res.status(404).json({ error: 'Audit Event not found' }); return; }
     res.json({
       metadata: event.metadata, module: event.module,
