@@ -43,7 +43,7 @@ export function registerAdministratorList(app: Express, pool: Pool) {
         json_build_object('type', actor_type, 'id', actor_id, 'display_name', actor_display_name) AS actor,
         json_build_object('type', target_type, 'id', target_id, 'display_name', target_display_name) AS target,
         CASE WHEN subject_id IS NULL THEN NULL ELSE json_build_object('type', subject_type, 'id', subject_id, 'display_name', subject_display_name) END AS subject,
-        description, customer_description, ip_address, user_agent, metadata, request_id, idempotency_key,
+        description, customer_description, ip_address, user_agent,
         to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS occurred_at,
         to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_at
       FROM audit_events ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}

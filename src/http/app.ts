@@ -5,10 +5,10 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { events, keys } from './schema.ts';
-import { hashKey } from './keys.ts';
-import { actionCatalog, sources } from './catalog.ts';
-import { registerAdministratorList, requireAdministrator } from './admin-events.ts';
+import { events, keys } from '../db/schema.ts';
+import { hashKey } from '../api-keys/keys.ts';
+import { actionCatalog, sources } from '../audit-events/catalog.ts';
+import { registerAdministratorList, requireAdministrator } from '../audit-events/admin-events.ts';
 function validText(value: string): boolean { return !/[\u0000\uD800-\uDFFF]/u.test(value); }
 const text = z.string().min(1).refine(validText, 'Invalid text');
 const identity = z.object({ type: text, id: text, display_name: text }).strict();

@@ -26,7 +26,7 @@ Start with `npm run dev`, or `npm run build` then `npm start`; these load `.env`
 
 Returns 201 with `{ "id": "<uuid>" }`. Subject and Customer description may be omitted or null. Outcome is `success` or `failure`. Timestamps use ISO 8601 with a timezone; the service supplies `recorded_at`. `occurred_at` may be late but cannot be more than five minutes in the future. Descriptions are stored verbatim, including whitespace.
 
-All eight Sources and their starting Actions are defined in `src/catalog.ts`; unknown Actions or Actions belonging to another Source return 400. A key for a different Source returns 403.
+All eight Sources and their starting Actions are defined in `src/audit-events/catalog.ts`; unknown Actions or Actions belonging to another Source return 400. A key for a different Source returns 403.
 
 Optional fields:
 

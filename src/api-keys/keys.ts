@@ -2,8 +2,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { eq } from 'drizzle-orm';
 import type { Pool } from 'pg';
-import { keys } from './schema.ts';
-import { sources } from './catalog.ts';
+import { keys } from '../db/schema.ts';
+import { sources } from '../audit-events/catalog.ts';
 export function validScope(scope: string) {
   return scope === 'read:admin' || scope === 'read:customer' || sources.some(source => scope === `write:${source}`);
 }
