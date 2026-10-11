@@ -2,10 +2,10 @@ import type { Express, Response } from 'express';
 import type { Pool } from 'pg';
 import { z } from 'zod';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { and, desc, eq, ne, sql } from 'drizzle-orm';
+import { and, desc, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { events } from '../db/schema.ts';
-import { datesMessage, datesOrdered, filterConditions, filterShape, listFields, requireAdministrator, timestamp } from './admin-events.ts';
+import { cursorSchema, datesMessage, datesOrdered, filterConditions, filterShape, listFields, requireAdministrator, timestamp } from './admin-events.ts';
 
 export const exportRowCap = 50_000;
 const batchSize = 1000;
@@ -35,12 +35,12 @@ function csvLine(row: Row) {
 }
 
 function readBatch(db: ReturnType<typeof drizzle>, conditions: ReturnType<typeof filterConditions>) {
-  return async (take: number, after?: { occurred_at: string; recorded_at: string; id: string }) => db.select(listFields).from(events)
+  return async (take: number, after?: z.infer<typeof cursorSchema>) => db.select(listFields).from(events)
     .where(and(...conditions, after && sql`(${events.occurred_at}, ${events.recorded_at}, ${events.id}) < (${after.occurred_at}::timestamptz, ${after.recorded_at}::timestamptz, ${after.id}::uuid)`))
     .orderBy(desc(events.occurred_at), desc(events.recorded_at), desc(events.id)).limit(take);
 }
 
-async function write(res: Response, chunk: string) {
+async function writeChunk(res: Response, chunk: string) {
   if (!res.write(chunk)) await new Promise<void>(resolve => { res.once('drain', resolve); res.once('close', resolve); });
 }
 
@@ -48,41 +48,49 @@ export function registerExport(app: Express, pool: Pool, options: { maxRows?: nu
   const maxRows = options.maxRows ?? exportRowCap;
   const db = drizzle(pool);
   app.get('/events/export', requireAdministrator, async (req, res) => {
+    if (typeof req.query.from !== 'string' || typeof req.query.to !== 'string') {
+      res.status(400).json({ error: 'A date range is required: provide both from and to (ISO 8601 with a timezone)' }); return;
+    }
     const parsed = exportSchema.safeParse(req.query);
     if (!parsed.success) { res.status(400).json({ error: 'Invalid export request: from, to, format, requested_by_id and requested_by_name are required', details: parsed.error.issues }); return; }
     const { format, requested_by_id, requested_by_name, ...filters } = parsed.data;
-    const conditions = filterConditions(filters);
+    // Events recorded after this instant are outside the export, so the count, the stream and the export event itself agree.
+    const { rows: [clock] } = await pool.query<{ cutoff: string }>('SELECT now()::text AS cutoff');
+    const conditions = [...filterConditions(filters), sql`${events.recorded_at} <= ${clock!.cutoff}::timestamptz`];
     const [counted] = await db.select({ total: sql<number>`count(*)::int` }).from(events).where(and(...conditions));
     const total = counted?.total ?? 0;
     if (total > maxRows) {
       res.status(413).json({ error: `Export matches ${total} events, more than ${maxRows} rows. Narrow the date range or filters.`, row_count: total, limit: maxRows });
       return;
     }
-    const exportId = randomUUID();
     await db.insert(events).values({
-      id: exportId, source: 'Authentication', action: 'audit_log.exported', outcome: 'success',
+      id: randomUUID(), source: 'Authentication', action: 'audit_log.exported', outcome: 'success',
       actor_type: 'user', actor_id: requested_by_id, actor_display_name: requested_by_name,
       target_type: 'audit_log', target_id: 'audit-events', target_display_name: 'Audit log',
       description: `${requested_by_name} exported ${total} audit events as ${format.toUpperCase()}.`,
       occurred_at: sql`now()`, metadata: { format, row_count: total, filters },
     });
-    // The export event describes this export, so it never appears inside it.
-    const read = readBatch(db, [...conditions, ne(events.id, exportId)]);
-    res.status(200).set({
-      'Content-Type': format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
-      'Content-Disposition': `attachment; filename="audit-events.${format}"`,
-    });
-    await write(res, format === 'csv' ? `${csvColumns.join(',')}\r\n` : '{"events":[');
-    let sent = 0;
-    let after: Parameters<typeof read>[1];
-    while (sent < maxRows && !res.destroyed) {
-      const rows = await read(Math.min(batchSize, maxRows - sent), after);
-      for (const row of rows) await write(res, format === 'csv' ? csvLine(row) : `${sent++ ? ',' : ''}${JSON.stringify(row)}`);
-      if (format === 'csv') sent += rows.length;
-      const last = rows.at(-1);
-      if (rows.length < batchSize || !last) break;
-      after = last;
+    const read = readBatch(db, conditions);
+    try {
+      res.status(200).set({
+        'Content-Type': format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
+        'Content-Disposition': `attachment; filename="audit-events.${format}"`,
+      });
+      await writeChunk(res, format === 'csv' ? `${csvColumns.join(',')}\r\n` : '{"events":[');
+      let sent = 0;
+      let after: Parameters<typeof read>[1];
+      while (sent < maxRows && !res.destroyed) {
+        const rows = await read(Math.min(batchSize, maxRows - sent), after);
+        for (const row of rows) await writeChunk(res, format === 'csv' ? csvLine(row) : `${sent++ ? ',' : ''}${JSON.stringify(row)}`);
+        if (format === 'csv') sent += rows.length;
+        const last = rows.at(-1);
+        if (rows.length < batchSize || !last) break;
+        after = last;
+      }
+      res.end(format === 'json' ? ']}' : undefined);
+    } catch (error) {
+      // A truncated CSV can look complete, so abort the connection instead of ending it cleanly.
+      res.destroy(error instanceof Error ? error : undefined);
     }
-    res.end(format === 'json' ? ']}' : undefined);
   });
 }

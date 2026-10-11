@@ -62,11 +62,19 @@ test('an export without a full date range is refused with a clear message', asyn
   for (const query of [{ format: 'csv' }, { format: 'csv', from: range.from }, { format: 'json', to: range.to }]) {
     const response = await exportAs(query);
     expect(response.status).toBe(400);
-    expect(JSON.stringify(response.body.details)).toMatch(/from|to/);
+    expect(response.body.error).toMatch(/date range is required/);
   }
   expect((await exportAs({ ...range })).status).toBe(400);
   expect((await exportAs({ ...range, format: 'xml' })).status).toBe(400);
   expect((await exportAs({ from: range.to, to: range.from, format: 'csv' })).status).toBe(400);
+});
+
+test('free-text search narrows the export exactly as it narrows the list', async () => {
+  const filters = { ...range, q: 'LINE ONE' };
+  const listed = await request(app).get('/events').auth(adminKey, { type: 'bearer' }).query({ actor_id: actor.id, ...filters, outcome: 'failure' });
+  const exported = await exportText({ ...filters, outcome: 'failure', format: 'json' });
+  expect(JSON.parse(exported.text)).toEqual({ events: listed.body.events });
+  expect(listed.body.events).toHaveLength(1);
 });
 
 test('an export over the row cap is refused, names the cap and records no export event', async () => {
