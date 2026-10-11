@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { createKey, revokeKey } from '../src/keys.ts';
+import { createKey, revokeKey } from '../src/api-keys/keys.ts';
 if (!process.env.DATABASE_URL_MIGRATIONS) throw new Error('DATABASE_URL_MIGRATIONS is required');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL_MIGRATIONS });
 try {

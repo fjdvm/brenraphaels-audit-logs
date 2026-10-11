@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import request from 'supertest';
 import { Pool } from 'pg';
-import { createApp } from '../../src/app.ts';
-import { createKey, revokeKey } from '../../src/keys.ts';
+import { createApp } from '../../src/http/app.ts';
+import { createKey, revokeKey } from '../../src/api-keys/keys.ts';
 
 const owner = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
 const runtime = new Pool({ connectionString: process.env.TEST_DATABASE_URL_RUNTIME });
@@ -37,7 +37,7 @@ test('Authentication writes an Audit Event and an Administrator reads every fiel
 
 test('missing, unknown and revoked keys cannot write or read Audit Events', async () => {
   const revoked = await createKey(owner, 'write:Authentication');
-  const { hashKey } = await import('../../src/keys.ts');
+  const { hashKey } = await import('../../src/api-keys/keys.ts');
   await revokeKey(owner, hashKey(revoked));
   for (const key of [undefined, 'unknown-key', revoked]) {
     const write = request(app).post('/events');
@@ -70,7 +70,7 @@ test('runtime cannot UPDATE or DELETE Audit Events or alter API keys', async () 
 });
 
 test('API keys are stored only as hashes', async () => {
-  const { hashKey } = await import('../../src/keys.ts');
+  const { hashKey } = await import('../../src/api-keys/keys.ts');
   const stored = await owner.query('SELECT hash FROM api_keys WHERE hash = $1', [hashKey(writeKey)]);
   expect(stored.rows).toEqual([{ hash: hashKey(writeKey) }]);
   expect((await owner.query('SELECT hash FROM api_keys WHERE hash = $1', [writeKey])).rowCount).toBe(0);

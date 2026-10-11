@@ -16,6 +16,10 @@ Default five-label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, 
 
 Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
+### Source layout
+
+Keep `src/` organised by folder; never add feature code directly to the `src/` root. Only the `server.ts` entrypoint lives there. Put `db/schema.ts` in `db/`, API key code in `api-keys/`, Audit Event catalog and Administrator reads in `audit-events/`, Express app and middleware in `http/` (`http/middleware/`), environment parsing in `config/`, and background jobs in `jobs/<job-name>/`. Migrations are numbered `NNNN_name.sql` in `migrations/`; check the highest number on `main` before adding one.
+
 ### Database validation
 
 Use the existing Neon database connections in `.env` for database work and validation. Do not start Docker or provision a local Postgres database. When dedicated test URLs are unset, use `DATABASE_URL_MIGRATIONS` for the test owner connection and `DATABASE_URL` for the runtime connection. Use `DATABASE_URL_ANONYMIZE` as `TEST_DATABASE_URL_ANONYMIZE` when the owner cannot `SET ROLE`.
