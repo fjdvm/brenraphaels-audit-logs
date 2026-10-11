@@ -3,7 +3,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { eq } from 'drizzle-orm';
 import type { Pool } from 'pg';
 import { keys } from './schema.ts';
-export const sources = ['CRMS', 'HRMS', 'POS', 'IMS', 'Authentication', 'File storage', 'Notifications', 'Ecommerce'] as const;
+import { sources } from './catalog.ts';
 export function validScope(scope: string) {
   return scope === 'read:admin' || scope === 'read:customer' || sources.some(source => scope === `write:${source}`);
 }

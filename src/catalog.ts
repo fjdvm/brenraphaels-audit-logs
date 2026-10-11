@@ -4,15 +4,21 @@ export const authenticationActions = [
   'access_grant.granted', 'access_grant.revoked', 'audit_log.exported',
 ] as const;
 
-const recordActions = ['record.created', 'record.updated', 'record.deleted', 'record.viewed'];
-// Module names from the authentication portal's lib/seed-data.ts; SCMS is now IMS.
-export const catalog = [
-  { source: 'CRMS', modules: ['Dashboard', 'Customer Profiles', 'Campaigns', 'Conversations', 'Tickets'], actions: recordActions },
-  { source: 'HRMS', modules: ['Dashboard', 'Recruitment and Hiring', 'Employee Information', 'Payroll & ESS', 'Attendance Biometrics', 'User Management'], actions: recordActions },
-  { source: 'POS', modules: ['Dashboard', 'Sales Processing', 'Order Management', 'Product Management/Price Configuration', 'Sales Report Analytics', 'Location/Branch Management', 'Stock Management'], actions: recordActions },
-  { source: 'IMS', modules: ['Dashboard', 'Resources & Suppliers', 'Orders & Procurement', 'Inventory Module', 'Production and Quality', 'Distribution'], actions: recordActions },
-  { source: 'Authentication', modules: [], actions: authenticationActions },
-  { source: 'File storage', modules: [], actions: ['file.uploaded', 'file.downloaded', 'file.deleted', 'file.shared'] },
-  { source: 'Notifications', modules: [], actions: ['notification.sent', 'notification.failed'] },
-  { source: 'Ecommerce', modules: [], actions: ['customer.signed_up', 'customer.signed_in', 'customer.password_changed', 'customer.address_changed', 'order.placed', 'order.cancelled', 'payment.completed', 'support_ticket.opened'] },
-];
+const recordActions = ['record.created', 'record.updated', 'record.deleted', 'record.viewed'] as const;
+export const actionCatalog = {
+  CRMS: recordActions, HRMS: recordActions, POS: recordActions, IMS: recordActions,
+  Authentication: authenticationActions,
+  'File storage': ['file.uploaded', 'file.downloaded', 'file.deleted', 'file.shared'],
+  Notifications: ['notification.sent', 'notification.failed'],
+  Ecommerce: ['customer.signed_up', 'customer.signed_in', 'customer.password_changed', 'customer.address_changed', 'order.placed', 'order.cancelled', 'payment.completed', 'support_ticket.opened'],
+} as const;
+export const sources = Object.keys(actionCatalog) as Array<keyof typeof actionCatalog>;
+
+// Module names from the authentication portal lib/seed-data.ts; SCMS is now IMS.
+const moduleCatalog: Partial<Record<keyof typeof actionCatalog, readonly string[]>> = {
+  CRMS: ['Dashboard', 'Customer Profiles', 'Campaigns', 'Conversations', 'Tickets'],
+  HRMS: ['Dashboard', 'Recruitment and Hiring', 'Employee Information', 'Payroll & ESS', 'Attendance Biometrics', 'User Management'],
+  POS: ['Dashboard', 'Sales Processing', 'Order Management', 'Product Management/Price Configuration', 'Sales Report Analytics', 'Location/Branch Management', 'Stock Management'],
+  IMS: ['Dashboard', 'Resources & Suppliers', 'Orders & Procurement', 'Inventory Module', 'Production and Quality', 'Distribution'],
+};
+export const catalog = sources.map(source => ({ source, modules: moduleCatalog[source] ?? [], actions: actionCatalog[source] }));
