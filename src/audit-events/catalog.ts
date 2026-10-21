@@ -2,6 +2,8 @@ export const authenticationActions = [
   'user.login', 'user.login_failed', 'user.logout', 'user.created', 'user.deleted', 'user.restored',
   'password.changed', 'password.forgot_requested', 'credentials.resent',
   'access_grant.granted', 'access_grant.revoked', 'audit_log.exported',
+  'password.forgot_completed', 'user.role_changed',
+  'system.handoff_authorized', 'system.handoff_exchanged', 'system.handoff_denied',
 ] as const;
 
 const recordActions = ['record.created', 'record.updated', 'record.deleted', 'record.viewed'] as const;

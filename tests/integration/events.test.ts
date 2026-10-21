@@ -102,7 +102,7 @@ const startingActions: Record<string, string[]> = {
   HRMS: ['record.created', 'record.updated', 'record.deleted', 'record.viewed'],
   POS: ['record.created', 'record.updated', 'record.deleted', 'record.viewed'],
   IMS: ['record.created', 'record.updated', 'record.deleted', 'record.viewed'],
-  Authentication: ['user.login', 'user.login_failed', 'user.logout', 'user.created', 'user.deleted', 'user.restored', 'password.changed', 'password.forgot_requested', 'credentials.resent', 'access_grant.granted', 'access_grant.revoked', 'audit_log.exported'],
+  Authentication: ['user.login', 'user.login_failed', 'user.logout', 'user.created', 'user.deleted', 'user.restored', 'password.changed', 'password.forgot_requested', 'credentials.resent', 'access_grant.granted', 'access_grant.revoked', 'audit_log.exported', 'password.forgot_completed', 'user.role_changed', 'system.handoff_authorized', 'system.handoff_exchanged', 'system.handoff_denied'],
   'File storage': ['file.uploaded', 'file.downloaded', 'file.deleted', 'file.shared'],
   Notifications: ['notification.sent', 'notification.failed'],
   Ecommerce: ['customer.signed_up', 'customer.signed_in', 'customer.password_changed', 'customer.address_changed', 'order.placed', 'order.cancelled', 'payment.completed', 'support_ticket.opened', 'feedback.request_sent'],
@@ -334,6 +334,7 @@ test('Administrator valid values include every Source and portal Modules', async
   expect(response.body.sources[0]).toEqual({ source: 'CRMS', modules: ['Dashboard', 'Customer Profiles', 'Campaigns', 'Conversations', 'Tickets'], actions: ['record.created', 'record.updated', 'record.deleted', 'record.viewed'] });
   expect(response.body.sources[4].modules).toEqual([]);
   expect(response.body.sources[4].actions).toContain('audit_log.exported');
+  expect(response.body.sources[4].actions).toEqual(expect.arrayContaining(['password.forgot_completed', 'user.role_changed', 'system.handoff_authorized', 'system.handoff_exchanged', 'system.handoff_denied']));
 });
 
 test('Administrator filters combine across Source, Module, Action, identities, outcome and dates', async () => {
