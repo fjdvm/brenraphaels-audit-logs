@@ -184,8 +184,8 @@ codex mcp add audit-logs --url $BASE_URL/mcp --bearer-token-env-var AUDIT_LOGS_K
 { id:'valid-values', title:'Valid values', method:'GET', path:'/events/valid-values', role:'admin', intro:'No parameters. Fill the portal’s filter dropdowns from this, and learn which Actions each Source may write. Sources without Modules return <code>"modules": []</code>. Writes to CRMS, HRMS, POS and IMS accept any nonempty module, not only the listed ones.',
   example:`curl "$BASE_URL/events/valid-values" -H "Authorization: Bearer $ADMIN_KEY"
 # 200 {"sources":[{"source":"CRMS",
-#   "modules":["Dashboard","Customer Profiles","Campaigns","Conversations","Tickets"],
-#   "actions":["record.created","record.updated","record.deleted","record.viewed"]}, …all eight Sources]}` },
+#   "modules":["Dashboard","Customer Profiles","Campaigns","Conversations","Tickets","Feedback"],
+#   "actions":["record.created","record.updated","record.deleted","record.viewed","feedback.analysis_run"]}, …all eight Sources]}` },
 { id:'export', title:'Export', method:'GET', path:'/events/export', role:'admin', intro:'Streams matching events as a download, newest first. No <code>limit</code> or <code>cursor</code>. Every accepted export first records an <code>audit_log.exported</code> Audit Event (Source Authentication) holding <code>format</code>, <code>row_count</code> and <code>filters</code>; the file never contains its own export event. If streaming fails partway the connection is aborted. CSV cells starting with <code>= + - @</code>, tab or CR get a leading <code>\'</code>.',
   tables:[{ title:'Query parameters', head:['Parameter','Required','Meaning'], rows:[
     ['<code>format</code>','yes','<code>csv</code> (flat <code>actor_*</code>, <code>target_*</code>, <code>subject_*</code> columns) or <code>json</code> (<code>{"events":[…]}</code>)'],

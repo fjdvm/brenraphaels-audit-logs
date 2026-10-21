@@ -202,8 +202,8 @@ curl -G "$BASE_URL/events/stats" -H "Authorization: Bearer $ADMIN_KEY" \
 
 ```sh
 curl "$BASE_URL/events/valid-values" -H "Authorization: Bearer $ADMIN_KEY"
-# 200 {"sources":[{"source":"CRMS","modules":["Dashboard","Customer Profiles","Campaigns","Conversations","Tickets"],
-#                  "actions":["record.created","record.updated","record.deleted","record.viewed"]}, ... all eight Sources]}
+# 200 {"sources":[{"source":"CRMS","modules":["Dashboard","Customer Profiles","Campaigns","Conversations","Tickets","Feedback"],
+#                  "actions":["record.created","record.updated","record.deleted","record.viewed","feedback.analysis_run"]}, ... all eight Sources]}
 ```
 
 Sources without Modules return `"modules": []`. Writes to CRMS, HRMS, POS and IMS accept any nonempty `module`, not only the listed names.

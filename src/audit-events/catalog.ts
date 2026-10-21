@@ -8,7 +8,7 @@ export const authenticationActions = [
 
 const recordActions = ['record.created', 'record.updated', 'record.deleted', 'record.viewed'] as const;
 export const actionCatalog = {
-  CRMS: recordActions, HRMS: recordActions, POS: recordActions, IMS: recordActions,
+  CRMS: [...recordActions, 'feedback.analysis_run'], HRMS: recordActions, POS: recordActions, IMS: recordActions,
   Authentication: authenticationActions,
   'File storage': ['file.uploaded', 'file.downloaded', 'file.deleted', 'file.shared'],
   Notifications: ['notification.sent', 'notification.failed'],
@@ -18,7 +18,7 @@ export const sources = Object.keys(actionCatalog) as Array<keyof typeof actionCa
 
 // Module names from the authentication portal lib/seed-data.ts; SCMS is now IMS.
 const moduleCatalog: Partial<Record<keyof typeof actionCatalog, readonly string[]>> = {
-  CRMS: ['Dashboard', 'Customer Profiles', 'Campaigns', 'Conversations', 'Tickets'],
+  CRMS: ['Dashboard', 'Customer Profiles', 'Campaigns', 'Conversations', 'Tickets', 'Feedback'],
   HRMS: ['Dashboard', 'Recruitment and Hiring', 'Employee Information', 'Payroll & ESS', 'Attendance Biometrics', 'User Management'],
   POS: ['Dashboard', 'Sales Processing', 'Order Management', 'Product Management/Price Configuration', 'Sales Report Analytics', 'Location/Branch Management', 'Stock Management'],
   IMS: ['Dashboard', 'Resources & Suppliers', 'Orders & Procurement', 'Inventory Module', 'Production and Quality', 'Distribution'],
