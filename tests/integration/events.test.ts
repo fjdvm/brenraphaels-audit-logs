@@ -105,7 +105,7 @@ const startingActions: Record<string, string[]> = {
   Authentication: ['user.login', 'user.login_failed', 'user.logout', 'user.created', 'user.deleted', 'user.restored', 'password.changed', 'password.forgot_requested', 'credentials.resent', 'access_grant.granted', 'access_grant.revoked', 'audit_log.exported'],
   'File storage': ['file.uploaded', 'file.downloaded', 'file.deleted', 'file.shared'],
   Notifications: ['notification.sent', 'notification.failed'],
-  Ecommerce: ['customer.signed_up', 'customer.signed_in', 'customer.password_changed', 'customer.address_changed', 'order.placed', 'order.cancelled', 'payment.completed', 'support_ticket.opened'],
+  Ecommerce: ['customer.signed_up', 'customer.signed_in', 'customer.password_changed', 'customer.address_changed', 'order.placed', 'order.cancelled', 'payment.completed', 'support_ticket.opened', 'feedback.request_sent'],
 };
 
 test('every starting Action is writable only by its own Source', async () => {
