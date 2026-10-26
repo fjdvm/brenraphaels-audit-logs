@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { events, keys } from '../db/schema.ts';
 import { hashKey } from '../api-keys/keys.ts';
-import { actionCatalog, sources } from '../audit-events/catalog.ts';
+import { actionCatalog, moduleCatalog, sources } from '../audit-events/catalog.ts';
 import { registerCustomerActivity } from '../audit-events/customer-events.ts';
 import { registerAdministratorList, requireAdministrator } from '../audit-events/admin-events.ts';
 import { registerExport } from '../audit-events/export.ts';
@@ -40,7 +40,7 @@ const input = z.object({
   idempotency_key: text.optional(),
   metadata: metadata.optional(), module: text.nullish(),
   ip_address: z.union([z.ipv4(), z.ipv6()]).nullish(), user_agent: text.nullish(), request_id: text.nullish(),
-}).strict().refine(event => (actionCatalog[event.source] as readonly string[]).includes(event.action), { message: 'Unknown Action for Source', path: ['action'] }).refine(event => event.module == null || ['CRMS', 'HRMS', 'POS', 'IMS'].includes(event.source), { message: 'Module is only allowed for CRMS, HRMS, POS and IMS', path: ['module'] });
+}).strict().refine(event => (actionCatalog[event.source] as readonly string[]).includes(event.action), { message: 'Unknown Action for Source', path: ['action'] }).refine(event => event.module == null || ['CRMS', 'HRMS', 'POS', 'IMS'].includes(event.source), { message: 'Module is only allowed for CRMS, HRMS, POS and IMS', path: ['module'] }).refine(event => event.source !== 'CRMS' || event.module == null || moduleCatalog.CRMS!.includes(event.module), { message: 'Unknown Module for CRMS', path: ['module'] });
 
 export function createApp(pool: Pool, options: { rateLimitPerSecond?: number; exportMaxRows?: number } = {}) {
   const rateLimit = options.rateLimitPerSecond ?? Number(process.env.RATE_LIMIT_PER_SECOND ?? 100);

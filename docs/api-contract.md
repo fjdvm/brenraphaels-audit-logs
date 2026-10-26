@@ -202,11 +202,11 @@ curl -G "$BASE_URL/events/stats" -H "Authorization: Bearer $ADMIN_KEY" \
 
 ```sh
 curl "$BASE_URL/events/valid-values" -H "Authorization: Bearer $ADMIN_KEY"
-# 200 {"sources":[{"source":"CRMS","modules":["Dashboard","Customer Profiles","Campaigns","Conversations","Tickets","Feedback"],
-#                  "actions":["record.created","record.updated","record.deleted","record.viewed","feedback.analysis_run"]}, ... all eight Sources]}
+# 200 {"sources":[{"source":"CRMS","modules":["Dashboard","Customer Profiles","Campaigns","Conversations","Tickets","Orders","Payments","Fulfilment","Returns","Marketing","Feedback"],
+#                  "actions":["record.created","record.updated","record.deleted","record.viewed","order.delivery_fee_quoted","order.confirmed","order.cancelled","order.marked_paid","order.preparing","order.dispatched","order.delivered","order.delivery_photo_attached","return.approved","return.declined","return.goods_received","return.refunded","return.replaced","ticket.opened","ticket.claimed","ticket.released","ticket.status_changed","ticket.priority_changed","walk_in_customer.created","walk_in_customer.updated","customer_profile.viewed","feedback.analysis_run","crms.signed_in","crms.access_denied"]}, ... all eight Sources]}
 ```
 
-Sources without Modules return `"modules": []`. Writes to CRMS, HRMS, POS and IMS accept any nonempty `module`, not only the listed names.
+Sources without Modules return `"modules": []`. CRMS writes reject Modules outside its listed catalog. HRMS, POS and IMS writes continue to accept any nonempty `module`. See [CREOMS vocabulary](api.md#creoms-vocabulary) for the CRMS producer contract.
 
 ## Export
 

@@ -30,7 +30,7 @@ All eight Sources and their starting Actions are defined in `src/audit-events/ca
 
 Optional fields:
 
-- `module`: nonempty string, allowed only for CRMS, HRMS, POS and IMS; omit or use null for other Sources.
+- `module`: nonempty string, allowed only for CRMS, HRMS, POS and IMS. CRMS rejects names outside its catalog; HRMS, POS and IMS continue to accept any nonempty name. Omit or use null for events without a Module.
 - `metadata`: JSON object, at most 4096 UTF-8 bytes when JSON-serialized. Keys containing `password`, `token`, `secret`, `authorization`, `card` or `cvv` (case insensitive) anywhere, including inside arrays, return 400.
 - `ip_address`: IPv4 or IPv6 address; `user_agent` and `request_id`: nonempty strings. These fields can also be null.
 - `idempotency_key`: nonempty producer string. Retries with the same Source and key return 201 with the original `{ "id": "<uuid>" }`, even after write-key rotation, and never replace the original event. Different Sources have separate namespaces. Omission creates a new event on every request. Retries still undergo authentication and validation.
@@ -69,7 +69,7 @@ Example: `GET /events?source=CRMS&module=Tickets&outcome=failure&from=2025-01-01
 
 `GET /events/stats?group_by=<day|source|action|outcome>` requires `read:admin` and returns `{ "group_by": "...", "buckets": [{ "key": "...", "count": 12 }, ...] }` for the Administrator charts. It accepts the same filters as `GET /events` (including `q`, `from` and `to`) but no `cursor`; `group_by` is required. `day` buckets are UTC dates (`YYYY-MM-DD`) in ascending order and omit days with no events; `source`, `action` and `outcome` buckets are ordered by count descending, then key. `limit` (1–100, default 10) caps the top Actions and is ignored for the other groupings. For repeated failed logins use `group_by=day&outcome=failure&source=Authentication&action=user.login`. Invalid parameters return 400; other scopes get 403.
 
-`GET /events/valid-values` requires `read:admin` and returns `{ "sources": [{ "source": "CRMS", "modules": [...], "actions": [...] }, ...] }` for all eight Sources, including Sources with no events. Sources without Modules return an empty array. Sources and Actions use the same catalog as write validation; Modules list the portal’s seeded names. Writes continue to accept any nonempty Module for the four business Sources.
+`GET /events/valid-values` requires `read:admin` and returns `{ "sources": [{ "source": "CRMS", "modules": [...], "actions": [...] }, ...] }` for all eight Sources, including Sources with no events. Sources without Modules return an empty array. Sources and Actions use the same catalog as write validation; Modules list the portal’s seeded names. CRMS writes accept only its listed Modules; HRMS, POS and IMS continue to accept any nonempty Module.
 
 Write keys and `read:customer` keys receive 403 on both endpoints. No PUT, PATCH or DELETE route exists.
 
@@ -94,3 +94,23 @@ Required parameters, otherwise 400 with a message naming them:
 An export matching more than 50,000 events is refused with 413 and a message giving the matching count; narrow the date range or filters. Nothing is streamed and no event is written.
 
 Every accepted export first records an `audit_log.exported` Audit Event (Source Authentication, Actor from `requested_by_*`, Target `audit_log`) whose `metadata` holds `format`, `row_count` and the `filters` used, including `from` and `to`. The export covers events recorded up to the moment the request is accepted, so the export event and anything written during the stream are not in it, and a later list may show them. If streaming fails partway the connection is aborted rather than ended cleanly, but the export event is already recorded. CSV cells that begin with `=`, `+`, `-`, `@`, a tab or a carriage return get a leading `'` so spreadsheets do not run them as formulas; JSON values are verbatim.
+
+## CREOMS vocabulary
+
+CRMS accepts these Staff Actions. Action and Module catalogs are validated independently; these pairings are the producer contract.
+
+| Module | Actions |
+| --- | --- |
+| Orders | `order.delivery_fee_quoted`, `order.confirmed`, `order.cancelled` |
+| Payments | `order.marked_paid` |
+| Fulfilment | `order.preparing`, `order.dispatched`, `order.delivered`, `order.delivery_photo_attached` |
+| Returns | `return.approved`, `return.declined`, `return.goods_received`, `return.refunded`, `return.replaced` |
+| Tickets | `ticket.opened`, `ticket.claimed`, `ticket.released`, `ticket.status_changed`, `ticket.priority_changed` |
+| Customer Profiles | `walk_in_customer.created`, `walk_in_customer.updated`, `customer_profile.viewed` |
+| Feedback | `feedback.analysis_run` |
+| Marketing (legacy Campaigns) | `record.created`, `record.updated`, `record.deleted`, `record.viewed` |
+| No Module | `crms.signed_in`, `crms.access_denied` |
+
+The four `record.*` Actions remain accepted throughout CRMS. Existing Dashboard, Customer Profiles, Campaigns, Conversations and Tickets Module names remain valid alongside Orders, Payments, Fulfilment, Returns, Marketing and Feedback. Access events omit `module` or set it to null. Ticket Messages, navigation and Dashboard PDF exports introduce no Actions.
+
+Before enabling CREOMS producers, deploy this catalog, then configure the gateway's `crms` Caller with an audit-logs key created with `write:CRMS` scope. Keep the plaintext key in the gateway's `CALLERS` secret only. The gateway's `auditScope` metadata should also be `write:CRMS`; authorization is enforced by the audit key itself.
