@@ -331,7 +331,7 @@ test('Administrator valid values include every Source and portal Modules', async
   expect(response.status).toBe(200);
   expect(Object.keys(response.body)).toEqual(['sources']);
   expect(response.body.sources.map((source: { source: string }) => source.source)).toEqual(['CRMS', 'HRMS', 'POS', 'IMS', 'Authentication', 'File storage', 'Notifications', 'Ecommerce']);
-  expect(response.body.sources[0]).toMatchObject({ source: 'CRMS', modules: expect.arrayContaining(['Dashboard', 'Customer Profiles', 'Campaigns', 'Conversations', 'Tickets']), actions: expect.arrayContaining( ['record.created', 'record.updated', 'record.deleted', 'record.viewed']) });
+  expect(response.body.sources[0]).toMatchObject({ source: 'CRMS', modules: expect.arrayContaining(['Dashboard', 'Customer Profiles', 'Campaigns', 'Conversations', 'Tickets', 'Feedback']), actions: expect.arrayContaining(['record.created', 'record.updated', 'record.deleted', 'record.viewed', 'feedback.analysis_run']) });
   expect(response.body.sources[4].modules).toEqual([]);
   expect(response.body.sources[4].actions).toContain('audit_log.exported');
   expect(response.body.sources[4].actions).toEqual(expect.arrayContaining(['password.forgot_completed', 'user.role_changed', 'system.handoff_authorized', 'system.handoff_exchanged', 'system.handoff_denied']));
