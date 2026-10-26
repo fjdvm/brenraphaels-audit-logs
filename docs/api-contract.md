@@ -206,7 +206,7 @@ curl "$BASE_URL/events/valid-values" -H "Authorization: Bearer $ADMIN_KEY"
 #                  "actions":["record.created","record.updated","record.deleted","record.viewed"]}, ... all eight Sources]}
 ```
 
-Sources without Modules return `"modules": []`. Writes to CRMS, HRMS, POS and IMS accept any nonempty `module`, not only the listed names.
+Sources without Modules return `"modules": []`. CRMS writes reject Modules outside its listed catalog. HRMS, POS and IMS writes continue to accept any nonempty `module`. See [CREOMS vocabulary](api.md#creoms-vocabulary) for the CRMS producer contract.
 
 ## Export
 

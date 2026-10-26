@@ -154,7 +154,7 @@ test('future events and producer recorded_at are rejected while late events keep
 test('Module is accepted only for the four Systems and descriptions remain as written', async () => {
   for (const [source, actions] of Object.entries(startingActions)) {
     const key = await createKey(owner, `write:${source}`);
-    const payload = { ...event, source, action: actions[0], module: 'Customers', description: '  Alice\nchanged Café.  ', customer_description: '  Your details\nchanged.  ', ip_address: '2001:db8::1', user_agent: 'Example/1.0', request_id: 'req-17' };
+    const payload = { ...event, source, action: actions[0], module: source === 'CRMS' ? 'Customer Profiles' : 'Customers', description: '  Alice\nchanged Café.  ', customer_description: '  Your details\nchanged.  ', ip_address: '2001:db8::1', user_agent: 'Example/1.0', request_id: 'req-17' };
     const written = await request(app).post('/events').auth(key, { type: 'bearer' }).send(payload);
     if (['CRMS', 'HRMS', 'POS', 'IMS'].includes(source)) {
       expect(written.status).toBe(201);
@@ -331,7 +331,7 @@ test('Administrator valid values include every Source and portal Modules', async
   expect(response.status).toBe(200);
   expect(Object.keys(response.body)).toEqual(['sources']);
   expect(response.body.sources.map((source: { source: string }) => source.source)).toEqual(['CRMS', 'HRMS', 'POS', 'IMS', 'Authentication', 'File storage', 'Notifications', 'Ecommerce']);
-  expect(response.body.sources[0]).toEqual({ source: 'CRMS', modules: ['Dashboard', 'Customer Profiles', 'Campaigns', 'Conversations', 'Tickets'], actions: ['record.created', 'record.updated', 'record.deleted', 'record.viewed'] });
+  expect(response.body.sources[0]).toMatchObject({ source: 'CRMS', modules: expect.arrayContaining(['Dashboard', 'Customer Profiles', 'Campaigns', 'Conversations', 'Tickets']), actions: expect.arrayContaining( ['record.created', 'record.updated', 'record.deleted', 'record.viewed']) });
   expect(response.body.sources[4].modules).toEqual([]);
   expect(response.body.sources[4].actions).toContain('audit_log.exported');
   expect(response.body.sources[4].actions).toEqual(expect.arrayContaining(['password.forgot_completed', 'user.role_changed', 'system.handoff_authorized', 'system.handoff_exchanged', 'system.handoff_denied']));
@@ -473,4 +473,55 @@ test('Administrator free-text search matches description and Actor or Subject na
   } while (cursor);
   expect(seen).toEqual([inDescription, asSubject, asActor]);
   expect((await search({ q: '   ' })).status).toBe(400);
+});
+
+const crmsActionsByModule: Record<string, string[]> = {
+  Orders: ['order.delivery_fee_quoted', 'order.confirmed', 'order.cancelled'],
+  Payments: ['order.marked_paid'],
+  Fulfilment: ['order.preparing', 'order.dispatched', 'order.delivered', 'order.delivery_photo_attached'],
+  Returns: ['return.approved', 'return.declined', 'return.goods_received', 'return.refunded', 'return.replaced'],
+  Tickets: ['ticket.opened', 'ticket.claimed', 'ticket.released', 'ticket.status_changed', 'ticket.priority_changed'],
+  'Customer Profiles': ['walk_in_customer.created', 'walk_in_customer.updated', 'customer_profile.viewed'],
+  Feedback: ['feedback.analysis_run'],
+};
+
+test('CRMS accepts every Staff Action with its Module and publishes the vocabulary', async () => {
+  const key = await createKey(owner, 'write:CRMS');
+  const values = await request(app).get('/events/valid-values').auth(readKey, { type: 'bearer' });
+  expect(values.status).toBe(200);
+  const crms = values.body.sources.find((item: { source: string }) => item.source === 'CRMS');
+  for (const [module, actions] of Object.entries(crmsActionsByModule)) {
+    expect(crms.modules).toContain(module);
+    for (const action of actions) {
+      expect(crms.actions).toContain(action);
+      const written = await request(app).post('/events').auth(key, { type: 'bearer' }).send({ ...event, source: 'CRMS', module, action });
+      expect(written.status, `${module}/${action}`).toBe(201);
+      const read = await request(app).get(`/events/${written.body.id}`).auth(readKey, { type: 'bearer' });
+      expect(read.body).toMatchObject({ source: 'CRMS', module, action });
+    }
+  }
+  for (const action of ['crms.signed_in', 'crms.access_denied']) {
+    expect(crms.actions).toContain(action);
+    expect((await request(app).post('/events').auth(key, { type: 'bearer' }).send({ ...event, source: 'CRMS', action })).status).toBe(201);
+  }
+  for (const module of ['Campaigns', 'Marketing']) {
+    expect(crms.modules).toContain(module);
+    for (const action of ['record.created', 'record.updated', 'record.deleted', 'record.viewed']) {
+      expect(crms.actions).toContain(action);
+      expect((await request(app).post('/events').auth(key, { type: 'bearer' }).send({ ...event, source: 'CRMS', module, action })).status).toBe(201);
+    }
+  }
+});
+
+test('CRMS rejects unknown Actions and Modules on single and batch writes', async () => {
+  const key = await createKey(owner, 'write:CRMS');
+  for (const invalid of [
+    { module: 'Orders', action: 'order.typo' },
+    { module: 'Unknown Module', action: 'record.created' },
+    { module: 'Orders', action: 'user.login' },
+  ]) {
+    const payload = { ...event, source: 'CRMS', ...invalid };
+    expect((await request(app).post('/events').auth(key, { type: 'bearer' }).send(payload)).status).toBe(400);
+    expect((await request(app).post('/events/batch').auth(key, { type: 'bearer' }).send({ events: [payload] })).status).toBe(400);
+  }
 });
