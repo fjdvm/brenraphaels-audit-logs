@@ -181,7 +181,7 @@ codex mcp add audit-logs --url $BASE_URL/mcp --bearer-token-env-var AUDIT_LOGS_K
   --data-urlencode "group_by=day" --data-urlencode "source=Authentication" \\
   --data-urlencode "action=user.login_failed" --data-urlencode "outcome=failure"
 # 200 {"group_by":"day","buckets":[{"key":"2026-01-01","count":4},{"key":"2026-01-02","count":9}]}` },
-{ id:'valid-values', title:'Valid values', method:'GET', path:'/events/valid-values', role:'admin', intro:'No parameters. Fill the portal’s filter dropdowns from this, and learn which Actions each Source may write. Sources without Modules return <code>"modules": []</code>. Writes to CRMS, HRMS, POS and IMS accept any nonempty module, not only the listed ones.',
+{ id:'valid-values', title:'Valid values', method:'GET', path:'/events/valid-values', role:'admin', intro:'No parameters. Fill the portal’s filter dropdowns from this, and learn which Actions each Source may write. Sources without Modules return <code>"modules": []</code>. CRMS writes reject Modules outside its catalog. HRMS, POS and IMS still accept any nonempty module.',
   example:`curl "$BASE_URL/events/valid-values" -H "Authorization: Bearer $ADMIN_KEY"
 # 200 {"sources":[{"source":"CRMS",
 #   "modules":["Dashboard","Customer Profiles","Campaigns","Conversations","Tickets"],

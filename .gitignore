@@ -4,3 +4,5 @@ dist
 .env
 !.env.production.example
 !.env.example
+.vercel
+.env.local
