@@ -525,3 +525,48 @@ test('CRMS rejects unknown Actions and Modules on single and batch writes', asyn
     expect((await request(app).post('/events/batch').auth(key, { type: 'bearer' }).send({ events: [payload] })).status).toBe(400);
   }
 });
+
+
+const hrmsJobActions = [
+  'job_posting.created', 'job_posting.updated', 'job_posting.published',
+  'job_posting.closed', 'job_posting.filled',
+  'job_template.created', 'job_template.updated', 'job_template.deleted',
+];
+
+test.each(hrmsJobActions)('HRMS accepts and retains %s on single and batch writes', async action => {
+  const key = await createKey(owner, 'write:HRMS');
+  const payload = { ...event, source: 'HRMS', module: 'Recruitment and Hiring', action };
+  for (const path of ['/events', '/events/batch']) {
+    const written = await request(app).post(path).auth(key, { type: 'bearer' })
+      .send(path === '/events' ? payload : { events: [payload] });
+    expect(written.status, path).toBe(201);
+    const id = path === '/events' ? written.body.id : written.body.events[0].id;
+    const read = await request(app).get(`/events/${id}`).auth(readKey, { type: 'bearer' });
+    expect(read.status).toBe(200);
+    expect(read.body).toMatchObject(payload);
+  }
+});
+
+test('HRMS publishes its Job Actions and keeps record Actions valid', async () => {
+  const values = await request(app).get('/events/valid-values').auth(readKey, { type: 'bearer' });
+  expect(values.status).toBe(200);
+  const hrms = values.body.sources.find((item: { source: string }) => item.source === 'HRMS');
+  expect(hrms.modules).toContain('Recruitment and Hiring');
+  expect(hrms.actions).toEqual(expect.arrayContaining(hrmsJobActions));
+  const key = await createKey(owner, 'write:HRMS');
+  for (const action of ['record.created', 'record.updated', 'record.deleted', 'record.viewed']) {
+    expect(hrms.actions).toContain(action);
+    const written = await request(app).post('/events').auth(key, { type: 'bearer' })
+      .send({ ...event, source: 'HRMS', module: 'Custom HRMS Module', action });
+    expect(written.status, action).toBe(201);
+  }
+});
+
+test('HRMS rejects unknown Actions on single and batch writes', async () => {
+  const key = await createKey(owner, 'write:HRMS');
+  for (const action of ['job_posting.typo', 'job_template.typo', 'user.login']) {
+    const payload = { ...event, source: 'HRMS', module: 'Recruitment and Hiring', action };
+    expect((await request(app).post('/events').auth(key, { type: 'bearer' }).send(payload)).status).toBe(400);
+    expect((await request(app).post('/events/batch').auth(key, { type: 'bearer' }).send({ events: [payload] })).status).toBe(400);
+  }
+});

@@ -114,3 +114,9 @@ CRMS accepts these Staff Actions. Action and Module catalogs are validated indep
 The four `record.*` Actions remain accepted throughout CRMS. Existing Dashboard, Customer Profiles, Campaigns, Conversations and Tickets Module names remain valid alongside Orders, Payments, Fulfilment, Returns, Marketing and Feedback. Access events omit `module` or set it to null. Ticket Messages, navigation and Dashboard PDF exports introduce no Actions.
 
 Before enabling CREOMS producers, deploy this catalog, then configure the gateway's `crms` Caller with an audit-logs key created with `write:CRMS` scope. Keep the plaintext key in the gateway's `CALLERS` secret only. The gateway's `auditScope` metadata should also be `write:CRMS`; authorization is enforced by the audit key itself.
+
+## HRMS vocabulary
+
+HRMS accepts `job_posting.created`, `job_posting.updated`, `job_posting.published`, `job_posting.closed`, `job_posting.filled`, `job_template.created`, `job_template.updated` and `job_template.deleted`, alongside the four existing `record.*` Actions. These Actions are also listed under HRMS in `GET /events/valid-values`. Unknown Actions remain rejected. Recruitment and Hiring is the standard Module for these events; HRMS continues to accept any non-empty Module.
+
+Deploy this catalog before enabling the HRMS producer changes. No database migration is needed. HRMS producers should identify Staff Actors using their Portal user id with type `user` so My logs can match them; the service continues to treat Actor ids as opaque values. See [the identity and Action decision](adr/0004-hrms-audit-identity-and-actions.md).
