@@ -41,7 +41,7 @@ jobs:
       - run: npm run typecheck
       - name: Migrate disposable database and set role passwords
         run: |
-          DATABASE_URL_MIGRATIONS="$TEST_DATABASE_URL" npm run db:migrate
+          DATABASE_URL_MIGRATIONS="$TEST_DATABASE_URL" node scripts/migrate.ts
           psql "$TEST_DATABASE_URL" -c "ALTER ROLE audit_runtime PASSWORD 'runtime'" -c "ALTER ROLE audit_anonymize PASSWORD 'anonymize'"
       - run: npm test
       - uses: docker/setup-buildx-action@v3
