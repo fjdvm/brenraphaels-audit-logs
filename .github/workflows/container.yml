@@ -95,7 +95,7 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - name: Deploy Container App (min 0 replicas)
+      - name: Deploy Container App (min 1 replica)
         id: deploy
         run: ./scripts/azure-deploy.sh
         env:
@@ -105,7 +105,7 @@ jobs:
           DATABASE_URL_MIGRATIONS: ${{ secrets.DATABASE_URL_MIGRATIONS }}
           DATABASE_URL_ANONYMIZE: ${{ secrets.DATABASE_URL_ANONYMIZE }}
           RATE_LIMIT_PER_SECOND: ${{ vars.RATE_LIMIT_PER_SECOND }}
-      - name: Verify health (wakes from zero) and scale settings
+      - name: Verify health and scale settings
         run: |
           for attempt in $(seq 1 30); do
             if curl --fail --silent "https://${{ steps.deploy.outputs.fqdn }}/health"; then break; fi
@@ -115,4 +115,4 @@ jobs:
           counts=$(az containerapp show -n audit-logs -g rg-brenraphaels \
             --query "properties.template.scale.minReplicas" -o tsv)
           echo "min replicas: $counts"
-          test "$counts" = "0"
+          test "$counts" = "1"
