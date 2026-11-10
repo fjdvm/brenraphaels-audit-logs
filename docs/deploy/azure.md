@@ -2,7 +2,7 @@
 
 Tracked by [Ticket#153](https://github.com/fjdvm/brenraphaels-authentication-microservice/issues/153) (Spec#138). Supersedes the ACR-based plan in #57/#58.
 
-Every push to `main` runs `.github/workflows/container.yml`: typecheck, tests, build the image, smoke-test it against a disposable Postgres (health, authenticated write, read), then push to GHCR and deploy Container App `audit-logs` in `rg-brenraphaels` / `cae-brenraphaels` with **min 0, max 2 replicas**. The first request after idle wakes a replica (cold start of a few seconds).
+Every push to `main` runs `.github/workflows/container.yml`: typecheck, tests, build the image, smoke-test it against a disposable Postgres (health, authenticated write, read), then push to GHCR and deploy Container App `audit-logs` in `rg-brenraphaels` / `cae-brenraphaels` with **min 1, max 2 replicas**. One replica stays running so audit writes from the Portal never hit a cold start (the Portal waits only 2 seconds per write); it was min 0 until 2026-11-10.
 
 ## Repository secrets and variables
 

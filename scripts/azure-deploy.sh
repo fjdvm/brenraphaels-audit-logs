@@ -26,13 +26,13 @@ if az containerapp show -n "$APP" -g "$RG" >/dev/null 2>&1; then
   az containerapp registry set -n "$APP" -g "$RG" --server ghcr.io \
     --username "$GHCR_USERNAME" --password "$GHCR_PULL_TOKEN" >/dev/null
   az containerapp update -n "$APP" -g "$RG" --image "$IMAGE" \
-    --min-replicas 0 --max-replicas 2 --cpu 0.25 --memory 0.5Gi >/dev/null
+    --min-replicas 1 --max-replicas 2 --cpu 0.25 --memory 0.5Gi >/dev/null
 else
   az containerapp create -n "$APP" -g "$RG" --environment "$ENV_NAME" --image "$IMAGE" \
     --registry-server ghcr.io --registry-username "$GHCR_USERNAME" \
     --registry-password "$GHCR_PULL_TOKEN" \
     --ingress external --target-port 8080 --transport auto \
-    --min-replicas 0 --max-replicas 2 --cpu 0.25 --memory 0.5Gi \
+    --min-replicas 1 --max-replicas 2 --cpu 0.25 --memory 0.5Gi \
     --secrets "${SECRETS[@]}" >/dev/null
 fi
 
