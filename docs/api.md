@@ -120,3 +120,32 @@ Before enabling CREOMS producers, deploy this catalog, then configure the gatewa
 HRMS accepts `job_posting.created`, `job_posting.updated`, `job_posting.published`, `job_posting.closed`, `job_posting.filled`, `job_template.created`, `job_template.updated` and `job_template.deleted`, alongside the four existing `record.*` Actions. These Actions are also listed under HRMS in `GET /events/valid-values`. Unknown Actions remain rejected. Recruitment and Hiring is the standard Module for these events; HRMS continues to accept any non-empty Module.
 
 Deploy this catalog before enabling the HRMS producer changes. No database migration is needed. HRMS producers should identify Staff Actors using their Portal user id with type `user` so My logs can match them; the service continues to treat Actor ids as opaque values. See [the identity and Action decision](adr/0004-hrms-audit-identity-and-actions.md).
+
+
+## IMS vocabulary
+
+IMS accepts the workflow and access Actions below alongside `record.created`,
+`record.updated`, `record.deleted`, and `record.viewed`. `GET /events/valid-values`
+publishes the same Actions and current SIMS Modules, retaining the historical
+`Inventory Module`, `Production and Quality`, and `Distribution` names.
+Unknown IMS Actions remain rejected; IMS continues to accept any nonempty Module.
+
+| Module | Actions |
+| --- | --- |
+| Orders & Procurement | `purchase_requisition.submitted/approved/rejected`, `purchase_order.created/approved/rejected` |
+| Goods Receiving | `delivery.received/discrepancy_logged`, `goods_receipt.inspected`, `return_to_vendor.submitted/approved/rejected`, `stock_in.approved/rejected/put_away` |
+| Inventory | `stock_in.approved/rejected/put_away`, `cycle_count.reconciled`, `loss_report.submitted/approved/rejected`, `lot.recalled` |
+| Production & Quality | `production_request.submitted/approved/rejected`, `material.issued`, `production_batch.stage_changed/qa_approved/qa_rejected` |
+| Stock Transfer | `stock_transfer.requested/approved/rejected/dispatched/received` |
+| Resources & Suppliers | The four `record.*` Actions |
+| No Module (`null`) | `ims.signed_in`, `ims.access_denied` |
+
+Slash-separated suffixes represent separate Actions. Actors use Portal user ids with
+`type: user`; subjects identify affected users when known. Existing actor ids and
+historical events remain unchanged. No database migration is required.
+
+Deploy this catalog to the test Audit Logs environment before switching a SIMS
+preview to `IMS_AUDIT_LEGACY_ACTIONS=false`. Native Actions support Administrator
+Action filters and charts. Earlier compatibility events keep their `record.*`
+Actions; search by their description tag (for example `q=purchase_order.approved`).
+Do not enable native mode against a service that still accepts only `record.*`.

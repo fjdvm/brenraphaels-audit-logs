@@ -1,3 +1,4 @@
+import { imsActions, moduleCatalog } from '../../src/audit-events/catalog.ts';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import request from 'supertest';
 import { Pool } from 'pg';
@@ -566,6 +567,47 @@ test('HRMS rejects unknown Actions on single and batch writes', async () => {
   const key = await createKey(owner, 'write:HRMS');
   for (const action of ['job_posting.typo', 'job_template.typo', 'user.login']) {
     const payload = { ...event, source: 'HRMS', module: 'Recruitment and Hiring', action };
+    expect((await request(app).post('/events').auth(key, { type: 'bearer' }).send(payload)).status).toBe(400);
+    expect((await request(app).post('/events/batch').auth(key, { type: 'bearer' }).send({ events: [payload] })).status).toBe(400);
+  }
+});
+
+
+const imsWorkflowModules: Record<string, string | null> = {
+  purchase_requisition: 'Orders & Procurement', purchase_order: 'Orders & Procurement',
+  delivery: 'Goods Receiving', goods_receipt: 'Goods Receiving', return_to_vendor: 'Goods Receiving',
+  stock_in: 'Inventory', cycle_count: 'Inventory', loss_report: 'Inventory', lot: 'Inventory',
+  production_request: 'Production & Quality', material: 'Production & Quality', production_batch: 'Production & Quality',
+  stock_transfer: 'Stock Transfer', record: 'Resources & Suppliers', ims: null,
+};
+
+test.each(imsActions)('IMS accepts and retains %s on single and batch writes', async action => {
+  const key = await createKey(owner, 'write:IMS');
+  const payload = { ...event, source: 'IMS', action,
+    module: imsWorkflowModules[action.split('.')[0]!] };
+  for (const path of ['/events', '/events/batch']) {
+    const written = await request(app).post(path).auth(key, { type: 'bearer' })
+      .send(path === '/events' ? payload : { events: [payload] });
+    expect(written.status, `${path}: ${action}`).toBe(201);
+    const id = path === '/events' ? written.body.id : written.body.events[0].id;
+    const read = await request(app).get(`/events/${id}`).auth(readKey, { type: 'bearer' });
+    expect(read.status).toBe(200);
+    expect(read.body).toMatchObject(payload);
+  }
+});
+
+test('IMS publishes all workflow Actions and current and legacy Modules', async () => {
+  const values = await request(app).get('/events/valid-values').auth(readKey, { type: 'bearer' });
+  expect(values.status).toBe(200);
+  const ims = values.body.sources.find((item: { source: string }) => item.source === 'IMS');
+  expect(ims.actions).toEqual(imsActions);
+  expect(ims.modules).toEqual(moduleCatalog.IMS);
+});
+
+test('IMS rejects unknown and cross-Source Actions on single and batch writes', async () => {
+  const key = await createKey(owner, 'write:IMS');
+  for (const action of ['purchase_order.typo', 'ims.typo', 'user.login', 'job_posting.created']) {
+    const payload = { ...event, source: 'IMS', module: 'Orders & Procurement', action };
     expect((await request(app).post('/events').auth(key, { type: 'bearer' }).send(payload)).status).toBe(400);
     expect((await request(app).post('/events/batch').auth(key, { type: 'bearer' }).send({ events: [payload] })).status).toBe(400);
   }
