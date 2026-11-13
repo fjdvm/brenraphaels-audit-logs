@@ -59,6 +59,17 @@ test('keys only authorize their own Source and read scope', async () => {
   expect((await request(app).post('/events').auth(writeKey, { type: 'bearer' }).send({ ...event, source: 'Ecommerce' })).status).toBe(403);
 });
 
+test('Portal decline activity is accepted and readable with its reason and message', async () => {
+  const declined = { ...event, action: 'account_request.declined', description: 'Declined Account request RQ-0001. Reason: Duplicate request. Message: Use RQ-0002.' };
+  const written = await request(app).post('/events').auth(writeKey, { type: 'bearer' }).send(declined);
+  expect(written.status).toBe(201);
+  const read = await request(app).get(`/events/${written.body.id}`).auth(readKey, { type: 'bearer' });
+  expect(read.status).toBe(200);
+  expect(read.body).toMatchObject(declined);
+  const options = await request(app).get('/events/valid-values').auth(readKey, { type: 'bearer' });
+  expect(options.body.sources.find((source: { source: string }) => source.source === 'Authentication').actions).toContain('account_request.declined');
+});
+
 test('an Action outside the Authentication catalog is rejected', async () => {
   expect((await request(app).post('/events').auth(writeKey, { type: 'bearer' }).send({ ...event, action: 'user.typo' })).status).toBe(400);
 });
