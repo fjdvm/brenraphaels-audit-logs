@@ -3,6 +3,7 @@ export const authenticationActions = [
   'password.changed', 'password.forgot_requested', 'credentials.resent',
   'access_grant.granted', 'access_grant.revoked', 'audit_log.exported',
   'password.forgot_completed', 'user.role_changed',
+  'account_request.declined',
   'system.handoff_authorized', 'system.handoff_exchanged', 'system.handoff_denied',
 ] as const;
 
