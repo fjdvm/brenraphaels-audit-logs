@@ -604,3 +604,40 @@ test.each(['order.stock_reserved', 'order.stock_released'])(
     expect(values.body.sources.find((source: { source: string }) => source.source === 'Ecommerce').actions).toContain(action);
   },
 );
+
+test('Ecommerce packed Orders retain the Staff and packing time across single and batch replay', async () => {
+  const key = await createKey(owner, 'write:Ecommerce');
+  const orderId = `packing-verification-${crypto.randomUUID()}`;
+  const packed = {
+    source: 'Ecommerce', action: 'order.packed', outcome: 'success',
+    actor: { type: 'staff', id: orderId, display_name: 'Ana Packing Verification' },
+    target: { type: 'order', id: orderId, display_name: 'Verification Order' },
+    description: 'Ana Packing Verification packed the Order.',
+    occurred_at: '2026-11-15T11:00:00.000Z',
+    idempotency_key: `order:${orderId}:order.packed`,
+  };
+  const first = await request(app).post('/events').auth(key, { type: 'bearer' }).send(packed);
+  expect(first.status).toBe(201);
+  const replay = await request(app).post('/events').auth(key, { type: 'bearer' }).send(packed);
+  expect(replay.status).toBe(201);
+  expect(replay.body.id).toBe(first.body.id);
+  const batch = await request(app).post('/events/batch').auth(key, { type: 'bearer' }).send({ events: [packed] });
+  expect(batch.status).toBe(201);
+  expect(batch.body.events[0].id).toBe(first.body.id);
+  const read = await request(app).get(`/events/${first.body.id}`).auth(readKey, { type: 'bearer' });
+  expect(read.status).toBe(200);
+  expect(read.body).toMatchObject({
+    source: 'Ecommerce', action: 'order.packed', actor: packed.actor, target: packed.target,
+    occurred_at: packed.occurred_at, description: packed.description,
+  });
+  const listed = await request(app).get('/events').auth(readKey, { type: 'bearer' })
+    .query({ source: 'Ecommerce', action: 'order.packed', actor_id: orderId });
+  expect(listed.status).toBe(200);
+  expect(listed.body.events.map((item: { id: string }) => item.id)).toEqual([first.body.id]);
+  const values = await request(app).get('/events/valid-values').auth(readKey, { type: 'bearer' });
+  expect(values.status).toBe(200);
+  expect(values.body.sources.find((item: { source: string }) => item.source === 'Ecommerce').actions).toContain('order.packed');
+  expect((await request(app).post('/events').auth(writeKey, { type: 'bearer' }).send(packed)).status).toBe(403);
+  expect((await request(app).post('/events').auth(writeKey, { type: 'bearer' })
+    .send({ ...packed, source: 'Authentication' })).status).toBe(400);
+});
