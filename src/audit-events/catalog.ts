@@ -28,7 +28,7 @@ export const actionCatalog = {
   Authentication: authenticationActions,
   'File storage': ['file.uploaded', 'file.downloaded', 'file.deleted', 'file.shared'],
   Notifications: ['notification.sent', 'notification.failed'],
-  Ecommerce: ['customer.signed_up', 'customer.signed_in', 'customer.password_changed', 'customer.address_changed', 'order.placed', 'order.cancelled', 'payment.completed', 'support_ticket.opened', 'feedback.request_sent'],
+  Ecommerce: ['customer.signed_up', 'customer.signed_in', 'customer.password_changed', 'customer.address_changed', 'order.placed', 'order.cancelled', 'order.stock_reserved', 'order.stock_released', 'payment.completed', 'support_ticket.opened', 'feedback.request_sent'],
 } as const;
 export const sources = Object.keys(actionCatalog) as Array<keyof typeof actionCatalog>;
 

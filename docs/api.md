@@ -120,3 +120,15 @@ Before enabling CREOMS producers, deploy this catalog, then configure the gatewa
 HRMS accepts `job_posting.created`, `job_posting.updated`, `job_posting.published`, `job_posting.closed`, `job_posting.filled`, `job_template.created`, `job_template.updated` and `job_template.deleted`, alongside the four existing `record.*` Actions. These Actions are also listed under HRMS in `GET /events/valid-values`. Unknown Actions remain rejected. Recruitment and Hiring is the standard Module for these events; HRMS continues to accept any non-empty Module.
 
 Deploy this catalog before enabling the HRMS producer changes. No database migration is needed. HRMS producers should identify Staff Actors using their Portal user id with type `user` so My logs can match them; the service continues to treat Actor ids as opaque values. See [the identity and Action decision](adr/0004-hrms-audit-identity-and-actions.md).
+
+
+### Ecommerce stock Actions
+
+The Ecommerce Source accepts `order.stock_reserved` and `order.stock_released`
+for the storefront reservation lifecycle (fjdvm/epic-crms#336 and #367). These
+are Administrator-visible stock events; they do not require a Module. Producers
+capture the Actor and Order Target and send a stable per-Order-line
+`idempotency_key`. Replaying a stock event returns the original id without
+changing its contents. The Administrator `GET /events/valid-values` catalog
+includes both Actions. IMS movement events retain their existing `record.updated`
+Action; this addition does not change IMS authentication or stock behavior.
