@@ -5,6 +5,7 @@ export const authenticationActions = [
   'password.forgot_completed', 'user.role_changed',
   'account_request.declined',
   'system.handoff_authorized', 'system.handoff_exchanged', 'system.handoff_denied',
+  'payment_settings.changed',
 ] as const;
 
 const recordActions = ['record.created', 'record.updated', 'record.deleted', 'record.viewed'] as const;
