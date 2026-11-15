@@ -581,3 +581,26 @@ test('HRMS rejects unknown Actions on single and batch writes', async () => {
     expect((await request(app).post('/events/batch').auth(key, { type: 'bearer' }).send({ events: [payload] })).status).toBe(400);
   }
 });
+
+test.each(['order.stock_reserved', 'order.stock_released'])(
+  'Ecommerce %s is accepted once, readable, and listed for Administrators', async action => {
+    const key = await createKey(owner, 'write:Ecommerce');
+    const stockEvent = {
+      source: 'Ecommerce', action, outcome: 'success',
+      actor: { type: 'system', id: 'stock-verification', display_name: 'Stock verification' },
+      target: { type: 'order', id: `verify-${action}`, display_name: 'Verification Order' },
+      description: 'Verified an Order stock movement.',
+      occurred_at: new Date().toISOString(), idempotency_key: `stock-verification:${action}:${crypto.randomUUID()}`,
+    };
+    const first = await request(app).post('/events').auth(key, { type: 'bearer' }).send(stockEvent);
+    expect(first.status).toBe(201);
+    const replay = await request(app).post('/events').auth(key, { type: 'bearer' }).send(stockEvent);
+    expect(replay.status).toBe(201);
+    expect(replay.body.id).toBe(first.body.id);
+    const read = await request(app).get(`/events/${first.body.id}`).auth(readKey, { type: 'bearer' });
+    expect(read.status).toBe(200);
+    expect(read.body).toMatchObject({ source: 'Ecommerce', action, actor: stockEvent.actor, target: stockEvent.target });
+    const values = await request(app).get('/events/valid-values').auth(readKey, { type: 'bearer' });
+    expect(values.body.sources.find((source: { source: string }) => source.source === 'Ecommerce').actions).toContain(action);
+  },
+);
