@@ -8,6 +8,20 @@ export const authenticationActions = [
   'payment_settings.changed',
 ] as const;
 
+const hrmsTrainingActions = [
+  'training.created', 'training.updated', 'training.rescheduled', 'training.cancelled',
+  'training.employee_assigned', 'training.employee_unassigned', 'training.results_marked',
+  'training.feedback_recorded', 'training.reminder_sent', 'training.notice_retried',
+  'training_material.uploaded', 'training_material.deleted',
+] as const;
+const hrmsPerformanceActions = [
+  'kpi.activated', 'kpi.deactivated', 'weight_set.created', 'weight_set.updated',
+  'performance_period.opened', 'non_working_date.added', 'non_working_date.updated',
+  'non_working_date.removed', 'attendance.imported', 'attendance_day.excused',
+  'attendance_day.marked_absent', 'attendance.no_attendance_confirmed', 'rating.saved',
+  'development_need.flagged',
+] as const;
+
 const recordActions = ['record.created', 'record.updated', 'record.deleted', 'record.viewed'] as const;
 export const actionCatalog = {
   CRMS: [
@@ -24,6 +38,8 @@ export const actionCatalog = {
     'job_posting.created', 'job_posting.updated', 'job_posting.published',
     'job_posting.closed', 'job_posting.filled',
     'job_template.created', 'job_template.updated', 'job_template.deleted',
+    ...hrmsTrainingActions,
+    ...hrmsPerformanceActions,
   ],
   POS: recordActions, IMS: recordActions,
   Authentication: authenticationActions,
@@ -36,7 +52,7 @@ export const sources = Object.keys(actionCatalog) as Array<keyof typeof actionCa
 // Portal Module names plus CREOMS vocabulary; retain Campaigns for earlier events.
 export const moduleCatalog: Partial<Record<keyof typeof actionCatalog, readonly string[]>> = {
   CRMS: ['Dashboard', 'Customer Profiles', 'Campaigns', 'Conversations', 'Tickets', 'Orders', 'Payments', 'Fulfilment', 'Returns', 'Marketing', 'Feedback'],
-  HRMS: ['Dashboard', 'Recruitment and Hiring', 'Employee Information', 'Payroll & ESS', 'Attendance Biometrics', 'User Management'],
+  HRMS: ['Dashboard', 'Recruitment and Hiring', 'Employee Information', 'Payroll & ESS', 'Attendance Biometrics', 'User Management', 'Training', 'Performance'],
   POS: ['Dashboard', 'Sales Processing', 'Order Management', 'Product Management/Price Configuration', 'Sales Report Analytics', 'Location/Branch Management', 'Stock Management'],
   IMS: ['Dashboard', 'Resources & Suppliers', 'Orders & Procurement', 'Inventory Module', 'Production and Quality', 'Distribution'],
 };

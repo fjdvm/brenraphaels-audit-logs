@@ -582,6 +582,74 @@ test('HRMS rejects unknown Actions on single and batch writes', async () => {
   }
 });
 
+const hrmsTrainingActions = [
+  'training.created', 'training.updated', 'training.rescheduled', 'training.cancelled',
+  'training.employee_assigned', 'training.employee_unassigned', 'training.results_marked',
+  'training.feedback_recorded', 'training.reminder_sent', 'training.notice_retried',
+  'training_material.uploaded', 'training_material.deleted',
+];
+const hrmsPerformanceActions = [
+  'kpi.activated', 'kpi.deactivated', 'weight_set.created', 'weight_set.updated',
+  'performance_period.opened', 'non_working_date.added', 'non_working_date.updated',
+  'non_working_date.removed', 'attendance.imported', 'attendance_day.excused',
+  'attendance_day.marked_absent', 'attendance.no_attendance_confirmed', 'rating.saved',
+  'development_need.flagged',
+];
+const hrmsModuleActions = [
+  ...hrmsTrainingActions.map(action => ({ module: 'Training', action })),
+  ...hrmsPerformanceActions.map(action => ({ module: 'Performance', action })),
+];
+
+test.each(hrmsModuleActions)('HRMS accepts and retains $action under $module on single and batch writes', async ({ module, action }) => {
+  const key = await createKey(owner, 'write:HRMS');
+  const payload = { ...event, source: 'HRMS', module, action, metadata: { training_id: 'training-1', employee_count: 3 } };
+  for (const path of ['/events', '/events/batch']) {
+    const written = await request(app).post(path).auth(key, { type: 'bearer' })
+      .send(path === '/events' ? payload : { events: [payload] });
+    expect(written.status, path).toBe(201);
+    const id = path === '/events' ? written.body.id : written.body.events[0].id;
+    const read = await request(app).get(`/events/${id}`).auth(readKey, { type: 'bearer' });
+    expect(read.status).toBe(200);
+    expect(read.body).toMatchObject(payload);
+  }
+});
+
+test('Training and Performance Actions are rejected for every other Source', async () => {
+  const sources = ['CRMS', 'POS', 'IMS', 'Authentication', 'File storage', 'Notifications', 'Ecommerce'];
+  const keys = await Promise.all(sources.map(async source => ({ source, key: await createKey(owner, `write:${source}`) })));
+  for (const { source, key } of keys) {
+    for (const { action } of hrmsModuleActions) {
+      const payload = { ...event, source, action };
+      expect((await request(app).post('/events').auth(key, { type: 'bearer' }).send(payload)).status, `${source}/${action}`).toBe(400);
+    }
+    const batch = { events: [{ ...event, source, action: 'training.created' }] };
+    expect((await request(app).post('/events/batch').auth(key, { type: 'bearer' }).send(batch)).status, source).toBe(400);
+  }
+});
+
+test('HRMS lists Training and Performance Modules and Actions and keeps its existing Actions', async () => {
+  const values = await request(app).get('/events/valid-values').auth(readKey, { type: 'bearer' });
+  const hrms = values.body.sources.find((item: { source: string }) => item.source === 'HRMS');
+  expect(hrms.modules).toEqual(expect.arrayContaining(['Training', 'Performance']));
+  expect(hrms.actions).toEqual(expect.arrayContaining([
+    ...hrmsTrainingActions, ...hrmsPerformanceActions, ...hrmsJobActions,
+    'record.created', 'record.updated', 'record.deleted', 'record.viewed',
+  ]));
+  expect(hrms.actions).toHaveLength(4 + hrmsJobActions.length + 26);
+});
+
+test.each(['training.created', 'rating.saved'])('metadata limits apply to the new HRMS Action %s', async action => {
+  const key = await createKey(owner, 'write:HRMS');
+  const base = { ...event, source: 'HRMS', module: action.startsWith('training') ? 'Training' : 'Performance', action };
+  const post = (metadata: unknown) => request(app).post('/events').auth(key, { type: 'bearer' }).send({ ...base, metadata });
+  expect((await post({ note: 'é'.repeat(2042) })).status).toBe(201);
+  expect((await post({ note: 'é'.repeat(2043) })).status).toBe(400);
+  for (const name of ['password', 'token', 'secret', 'authorization', 'card', 'cvv']) {
+    expect((await post({ [name]: 'hidden' })).status, name).toBe(400);
+    expect((await post({ nested: [{ [name]: 'hidden' }] })).status, name).toBe(400);
+  }
+});
+
 test.each(['order.stock_reserved', 'order.stock_released'])(
   'Ecommerce %s is accepted once, readable, and listed for Administrators', async action => {
     const key = await createKey(owner, 'write:Ecommerce');
