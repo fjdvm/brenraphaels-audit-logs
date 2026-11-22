@@ -47,12 +47,12 @@ A successful batch returns 201 with `{ "events": [{ "id": "<uuid>" }, ...] }` in
 
 For tests, use the existing Neon connections in `.env` (see `AGENTS.md`); set `TEST_DATABASE_URL` from `DATABASE_URL_MIGRATIONS` and `TEST_DATABASE_URL_RUNTIME` from `DATABASE_URL` when dedicated test URLs are unset. Set `TEST_DATABASE_URL_ANONYMIZE` from `DATABASE_URL_ANONYMIZE` when the owner cannot `SET ROLE`. Run `npm test -- --testTimeout=120000 --hookTimeout=30000` (or `node --env-file=.env node_modules/vitest/vitest.mjs run --testTimeout=120000 --hookTimeout=30000`) with those test URLs exported; the longer timeout accommodates Neon network latency. Tests call Express in-process against real Postgres and create events/keys; they do not clean or delete history. The anonymization job (`src/jobs/anonymize-customer/`) is invoked directly, not over HTTP; its tests run it and read events back through the API.
 
-## Deployment (Vercel + Neon)
+## Deployment (Azure Container Apps + Neon)
 
-The service runs as a Vercel Function (the Express app in `src/server.ts`) against the Neon project. Set the connection strings in the Vercel project environment (production and preview), never in the repo:
+The service runs as an Azure Container App (the Express app in `src/server.ts`, built from the `Dockerfile`) against the Neon project. See [docs/deploy/azure.md](deploy/azure.md) for the workflow. Connection strings live in GitHub repository secrets, never in the repo:
 
 - `DATABASE_URL`: pooled `audit_runtime` URL. The only database credential the deployed API needs.
-- `DATABASE_URL_MIGRATIONS`: owner URL. Use it from an operator machine for `npm run db:migrate` and `npm run key`; do not set it on Vercel.
+- `DATABASE_URL_MIGRATIONS`: owner URL. Use it from an operator machine for `npm run db:migrate` and `npm run key`; do not add it to the deployed app.
 - `DATABASE_URL_ANONYMIZE`: `audit_anonymize` URL for the separate anonymization job; do not set it on the API deployment.
 
 Check a deployment with `BASE_URL=https://<deployment> WRITE_KEY=<write:Authentication key> ADMIN_KEY=<read:admin key> npm run smoke`. It writes one Audit Event and reads it back with the admin key. Create the keys with `npm run key`, and revoke them afterwards.

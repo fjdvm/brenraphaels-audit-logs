@@ -22,18 +22,18 @@ Put your key in `AUDIT_LOGS_KEY` first so it stays out of config files. The exam
 
 ```sh
 # Claude Code
-claude mcp add --transport http audit-logs https://brenraphaels-audit-logs.vercel.app/mcp \
+claude mcp add --transport http audit-logs https://<audit-logs-host>/mcp \
   --header "Authorization: Bearer $AUDIT_LOGS_KEY"
 
 # Codex
-codex mcp add audit-logs --url https://brenraphaels-audit-logs.vercel.app/mcp --bearer-token-env-var AUDIT_LOGS_KEY
+codex mcp add audit-logs --url https://<audit-logs-host>/mcp --bearer-token-env-var AUDIT_LOGS_KEY
 ```
 
 Cursor, `~/.cursor/mcp.json`:
 
 ```json
 { "mcpServers": { "audit-logs": {
-  "url": "https://brenraphaels-audit-logs.vercel.app/mcp",
+  "url": "https://<audit-logs-host>/mcp",
   "headers": { "Authorization": "Bearer ${env:AUDIT_LOGS_KEY}" } } } }
 ```
 
@@ -41,7 +41,7 @@ Kiro, `~/.kiro/settings/mcp.json`:
 
 ```json
 { "mcpServers": { "audit-logs": {
-  "url": "https://brenraphaels-audit-logs.vercel.app/mcp",
+  "url": "https://<audit-logs-host>/mcp",
   "headers": { "Authorization": "Bearer ${AUDIT_LOGS_KEY}" } } } }
 ```
 
