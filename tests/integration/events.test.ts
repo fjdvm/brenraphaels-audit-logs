@@ -60,6 +60,17 @@ test('keys only authorize their own Source and read scope', async () => {
   expect((await request(app).post('/events').auth(writeKey, { type: 'bearer' }).send({ ...event, source: 'Ecommerce' })).status).toBe(403);
 });
 
+test('Portal decline activity is accepted and readable with its reason and message', async () => {
+  const declined = { ...event, action: 'account_request.declined', description: 'Declined Account request RQ-0001. Reason: Duplicate request. Message: Use RQ-0002.' };
+  const written = await request(app).post('/events').auth(writeKey, { type: 'bearer' }).send(declined);
+  expect(written.status).toBe(201);
+  const read = await request(app).get(`/events/${written.body.id}`).auth(readKey, { type: 'bearer' });
+  expect(read.status).toBe(200);
+  expect(read.body).toMatchObject(declined);
+  const options = await request(app).get('/events/valid-values').auth(readKey, { type: 'bearer' });
+  expect(options.body.sources.find((source: { source: string }) => source.source === 'Authentication').actions).toContain('account_request.declined');
+});
+
 test('an Action outside the Authentication catalog is rejected', async () => {
   expect((await request(app).post('/events').auth(writeKey, { type: 'bearer' }).send({ ...event, action: 'user.typo' })).status).toBe(400);
 });
@@ -611,4 +622,132 @@ test('IMS rejects unknown and cross-Source Actions on single and batch writes', 
     expect((await request(app).post('/events').auth(key, { type: 'bearer' }).send(payload)).status).toBe(400);
     expect((await request(app).post('/events/batch').auth(key, { type: 'bearer' }).send({ events: [payload] })).status).toBe(400);
   }
+});
+
+const hrmsTrainingActions = [
+  'training.created', 'training.updated', 'training.rescheduled', 'training.cancelled',
+  'training.employee_assigned', 'training.employee_unassigned', 'training.results_marked',
+  'training.feedback_recorded', 'training.reminder_sent', 'training.notice_retried',
+  'training_material.uploaded', 'training_material.deleted',
+];
+const hrmsPerformanceActions = [
+  'kpi.activated', 'kpi.deactivated', 'weight_set.created', 'weight_set.updated',
+  'performance_period.opened', 'non_working_date.added', 'non_working_date.updated',
+  'non_working_date.removed', 'attendance.imported', 'attendance_day.excused',
+  'attendance_day.marked_absent', 'attendance.no_attendance_confirmed', 'rating.saved',
+  'development_need.flagged',
+];
+const hrmsModuleActions = [
+  ...hrmsTrainingActions.map(action => ({ module: 'Training', action })),
+  ...hrmsPerformanceActions.map(action => ({ module: 'Performance', action })),
+];
+
+test.each(hrmsModuleActions)('HRMS accepts and retains $action under $module on single and batch writes', async ({ module, action }) => {
+  const key = await createKey(owner, 'write:HRMS');
+  const payload = { ...event, source: 'HRMS', module, action, metadata: { training_id: 'training-1', employee_count: 3 } };
+  for (const path of ['/events', '/events/batch']) {
+    const written = await request(app).post(path).auth(key, { type: 'bearer' })
+      .send(path === '/events' ? payload : { events: [payload] });
+    expect(written.status, path).toBe(201);
+    const id = path === '/events' ? written.body.id : written.body.events[0].id;
+    const read = await request(app).get(`/events/${id}`).auth(readKey, { type: 'bearer' });
+    expect(read.status).toBe(200);
+    expect(read.body).toMatchObject(payload);
+  }
+});
+
+test('Training and Performance Actions are rejected for every other Source', async () => {
+  const sources = ['CRMS', 'POS', 'IMS', 'Authentication', 'File storage', 'Notifications', 'Ecommerce'];
+  const keys = await Promise.all(sources.map(async source => ({ source, key: await createKey(owner, `write:${source}`) })));
+  for (const { source, key } of keys) {
+    for (const { action } of hrmsModuleActions) {
+      const payload = { ...event, source, action };
+      expect((await request(app).post('/events').auth(key, { type: 'bearer' }).send(payload)).status, `${source}/${action}`).toBe(400);
+    }
+    const batch = { events: [{ ...event, source, action: 'training.created' }] };
+    expect((await request(app).post('/events/batch').auth(key, { type: 'bearer' }).send(batch)).status, source).toBe(400);
+  }
+});
+
+test('HRMS lists Training and Performance Modules and Actions and keeps its existing Actions', async () => {
+  const values = await request(app).get('/events/valid-values').auth(readKey, { type: 'bearer' });
+  const hrms = values.body.sources.find((item: { source: string }) => item.source === 'HRMS');
+  expect(hrms.modules).toEqual(expect.arrayContaining(['Training', 'Performance']));
+  expect(hrms.actions).toEqual(expect.arrayContaining([
+    ...hrmsTrainingActions, ...hrmsPerformanceActions, ...hrmsJobActions,
+    'record.created', 'record.updated', 'record.deleted', 'record.viewed',
+  ]));
+  expect(hrms.actions).toHaveLength(4 + hrmsJobActions.length + 26);
+});
+
+test.each(['training.created', 'rating.saved'])('metadata limits apply to the new HRMS Action %s', async action => {
+  const key = await createKey(owner, 'write:HRMS');
+  const base = { ...event, source: 'HRMS', module: action.startsWith('training') ? 'Training' : 'Performance', action };
+  const post = (metadata: unknown) => request(app).post('/events').auth(key, { type: 'bearer' }).send({ ...base, metadata });
+  expect((await post({ note: 'é'.repeat(2042) })).status).toBe(201);
+  expect((await post({ note: 'é'.repeat(2043) })).status).toBe(400);
+  for (const name of ['password', 'token', 'secret', 'authorization', 'card', 'cvv']) {
+    expect((await post({ [name]: 'hidden' })).status, name).toBe(400);
+    expect((await post({ nested: [{ [name]: 'hidden' }] })).status, name).toBe(400);
+  }
+});
+
+test.each(['order.stock_reserved', 'order.stock_released'])(
+  'Ecommerce %s is accepted once, readable, and listed for Administrators', async action => {
+    const key = await createKey(owner, 'write:Ecommerce');
+    const stockEvent = {
+      source: 'Ecommerce', action, outcome: 'success',
+      actor: { type: 'system', id: 'stock-verification', display_name: 'Stock verification' },
+      target: { type: 'order', id: `verify-${action}`, display_name: 'Verification Order' },
+      description: 'Verified an Order stock movement.',
+      occurred_at: new Date().toISOString(), idempotency_key: `stock-verification:${action}:${crypto.randomUUID()}`,
+    };
+    const first = await request(app).post('/events').auth(key, { type: 'bearer' }).send(stockEvent);
+    expect(first.status).toBe(201);
+    const replay = await request(app).post('/events').auth(key, { type: 'bearer' }).send(stockEvent);
+    expect(replay.status).toBe(201);
+    expect(replay.body.id).toBe(first.body.id);
+    const read = await request(app).get(`/events/${first.body.id}`).auth(readKey, { type: 'bearer' });
+    expect(read.status).toBe(200);
+    expect(read.body).toMatchObject({ source: 'Ecommerce', action, actor: stockEvent.actor, target: stockEvent.target });
+    const values = await request(app).get('/events/valid-values').auth(readKey, { type: 'bearer' });
+    expect(values.body.sources.find((source: { source: string }) => source.source === 'Ecommerce').actions).toContain(action);
+  },
+);
+
+test('Ecommerce packed Orders retain the Staff and packing time across single and batch replay', async () => {
+  const key = await createKey(owner, 'write:Ecommerce');
+  const orderId = `packing-verification-${crypto.randomUUID()}`;
+  const packed = {
+    source: 'Ecommerce', action: 'order.packed', outcome: 'success',
+    actor: { type: 'staff', id: orderId, display_name: 'Ana Packing Verification' },
+    target: { type: 'order', id: orderId, display_name: 'Verification Order' },
+    description: 'Ana Packing Verification packed the Order.',
+    occurred_at: '2026-11-15T11:00:00.000Z',
+    idempotency_key: `order:${orderId}:order.packed`,
+  };
+  const first = await request(app).post('/events').auth(key, { type: 'bearer' }).send(packed);
+  expect(first.status).toBe(201);
+  const replay = await request(app).post('/events').auth(key, { type: 'bearer' }).send(packed);
+  expect(replay.status).toBe(201);
+  expect(replay.body.id).toBe(first.body.id);
+  const batch = await request(app).post('/events/batch').auth(key, { type: 'bearer' }).send({ events: [packed] });
+  expect(batch.status).toBe(201);
+  expect(batch.body.events[0].id).toBe(first.body.id);
+  const read = await request(app).get(`/events/${first.body.id}`).auth(readKey, { type: 'bearer' });
+  expect(read.status).toBe(200);
+  expect(read.body).toMatchObject({
+    source: 'Ecommerce', action: 'order.packed', actor: packed.actor, target: packed.target,
+    occurred_at: packed.occurred_at, description: packed.description,
+  });
+  const listed = await request(app).get('/events').auth(readKey, { type: 'bearer' })
+    .query({ source: 'Ecommerce', action: 'order.packed', actor_id: orderId });
+  expect(listed.status).toBe(200);
+  expect(listed.body.events.map((item: { id: string }) => item.id)).toEqual([first.body.id]);
+  const values = await request(app).get('/events/valid-values').auth(readKey, { type: 'bearer' });
+  expect(values.status).toBe(200);
+  expect(values.body.sources.find((item: { source: string }) => item.source === 'Ecommerce').actions).toContain('order.packed');
+  expect((await request(app).post('/events').auth(writeKey, { type: 'bearer' }).send(packed)).status).toBe(403);
+  expect((await request(app).post('/events').auth(writeKey, { type: 'bearer' })
+    .send({ ...packed, source: 'Authentication' })).status).toBe(400);
 });

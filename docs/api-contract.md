@@ -206,7 +206,7 @@ curl "$BASE_URL/events/valid-values" -H "Authorization: Bearer $ADMIN_KEY"
 #                  "actions":["record.created","record.updated","record.deleted","record.viewed","order.delivery_fee_quoted","order.confirmed","order.cancelled","order.marked_paid","order.preparing","order.dispatched","order.delivered","order.delivery_photo_attached","return.approved","return.declined","return.goods_received","return.refunded","return.replaced","ticket.opened","ticket.claimed","ticket.released","ticket.status_changed","ticket.priority_changed","walk_in_customer.created","walk_in_customer.updated","customer_profile.viewed","feedback.analysis_run","crms.signed_in","crms.access_denied"]}, ... all eight Sources]}
 ```
 
-Sources without Modules return `"modules": []`. CRMS writes reject Modules outside its listed catalog. HRMS, POS and IMS writes continue to accept any nonempty `module`. See [CREOMS vocabulary](api.md#creoms-vocabulary) for the CRMS producer contract.
+Sources without Modules return `"modules": []`. CRMS writes reject Modules outside its listed catalog. HRMS, POS and IMS writes continue to accept any nonempty `module`. HRMS lists the Modules `Dashboard`, `Recruitment and Hiring`, `Employee Information`, `Payroll & ESS`, `Attendance Biometrics`, `User Management`, `Training` and `Performance`, and its Actions include the 26 Training and Performance Actions (see [HRMS vocabulary](api.md#hrms-vocabulary)). See [CREOMS vocabulary](api.md#creoms-vocabulary) for the CRMS producer contract.
 
 ## Export
 

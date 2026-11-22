@@ -64,7 +64,7 @@
   <h1>How to use the Audit Logs API</h1>
   <p class="lede">The company's single, append-only record of who did what, where and when. This page covers every endpoint, the key role each needs, the filters and the errors, with one worked example each. It is written for the authors of the portal tab, the Ecommerce activity page and each Source's integration.</p>
   <div class="meta"><span>Append-only</span><span>·</span><span>Bearer-key access</span><span>·</span>
-    <label>Base URL for examples <input type="text" id="base" placeholder="https://brenraphaels-audit-logs.vercel.app" autocomplete="off" aria-label="Base URL for examples"></label></div>
+    <label>Base URL for examples <input type="text" id="base" placeholder="https://<audit-logs-host>" autocomplete="off" aria-label="Base URL for examples"></label></div>
   <hr>
   <div class="cols">
     <nav aria-label="Contents"><h2>Contents</h2><ol id="toc"></ol></nav>
@@ -228,7 +228,7 @@ function render(base) {
   }).join('');
 }
 $('#toc').innerHTML = SECTIONS.map((s, i) => `<li><a href="#${s.id}">${i + 1}. ${s.title}</a></li>`).join('');
-let base = 'https://brenraphaels-audit-logs.vercel.app';
+let base = location.origin;
 try { base = localStorage.getItem('audit-base') ?? base; } catch {}
 $('#base').value = base;
 render(base);

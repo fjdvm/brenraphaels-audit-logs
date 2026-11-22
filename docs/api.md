@@ -30,7 +30,7 @@ All eight Sources and their starting Actions are defined in `src/audit-events/ca
 
 Optional fields:
 
-- `module`: nonempty string, allowed only for CRMS, HRMS, POS and IMS. CRMS rejects names outside its catalog; HRMS, POS and IMS continue to accept any nonempty name. Omit or use null for events without a Module.
+- `module`: nonempty string, allowed only for CRMS, HRMS, POS and IMS. CRMS rejects names outside its catalog; HRMS, POS and IMS continue to accept any nonempty name; HRMS's standard Modules are listed in `GET /events/valid-values` and include `Training` and `Performance`. Omit or use null for events without a Module.
 - `metadata`: JSON object, at most 4096 UTF-8 bytes when JSON-serialized. Keys containing `password`, `token`, `secret`, `authorization`, `card` or `cvv` (case insensitive) anywhere, including inside arrays, return 400.
 - `ip_address`: IPv4 or IPv6 address; `user_agent` and `request_id`: nonempty strings. These fields can also be null.
 - `idempotency_key`: nonempty producer string. Retries with the same Source and key return 201 with the original `{ "id": "<uuid>" }`, even after write-key rotation, and never replace the original event. Different Sources have separate namespaces. Omission creates a new event on every request. Retries still undergo authentication and validation.
@@ -47,12 +47,12 @@ A successful batch returns 201 with `{ "events": [{ "id": "<uuid>" }, ...] }` in
 
 For tests, use the existing Neon connections in `.env` (see `AGENTS.md`); set `TEST_DATABASE_URL` from `DATABASE_URL_MIGRATIONS` and `TEST_DATABASE_URL_RUNTIME` from `DATABASE_URL` when dedicated test URLs are unset. Set `TEST_DATABASE_URL_ANONYMIZE` from `DATABASE_URL_ANONYMIZE` when the owner cannot `SET ROLE`. Run `npm test -- --testTimeout=120000 --hookTimeout=30000` (or `node --env-file=.env node_modules/vitest/vitest.mjs run --testTimeout=120000 --hookTimeout=30000`) with those test URLs exported; the longer timeout accommodates Neon network latency. Tests call Express in-process against real Postgres and create events/keys; they do not clean or delete history. The anonymization job (`src/jobs/anonymize-customer/`) is invoked directly, not over HTTP; its tests run it and read events back through the API.
 
-## Deployment (Vercel + Neon)
+## Deployment (Azure Container Apps + Neon)
 
-The service runs as a Vercel Function (the Express app in `src/server.ts`) against the Neon project. Set the connection strings in the Vercel project environment (production and preview), never in the repo:
+The service runs as an Azure Container App (the Express app in `src/server.ts`, built from the `Dockerfile`) against the Neon project. See [docs/deploy/azure.md](deploy/azure.md) for the workflow. Connection strings live in GitHub repository secrets, never in the repo:
 
 - `DATABASE_URL`: pooled `audit_runtime` URL. The only database credential the deployed API needs.
-- `DATABASE_URL_MIGRATIONS`: owner URL. Use it from an operator machine for `npm run db:migrate` and `npm run key`; do not set it on Vercel.
+- `DATABASE_URL_MIGRATIONS`: owner URL. Use it from an operator machine for `npm run db:migrate` and `npm run key`; do not add it to the deployed app.
 - `DATABASE_URL_ANONYMIZE`: `audit_anonymize` URL for the separate anonymization job; do not set it on the API deployment.
 
 Check a deployment with `BASE_URL=https://<deployment> WRITE_KEY=<write:Authentication key> ADMIN_KEY=<read:admin key> npm run smoke`. It writes one Audit Event and reads it back with the admin key. Create the keys with `npm run key`, and revoke them afterwards.
@@ -119,6 +119,16 @@ Before enabling CREOMS producers, deploy this catalog, then configure the gatewa
 
 HRMS accepts `job_posting.created`, `job_posting.updated`, `job_posting.published`, `job_posting.closed`, `job_posting.filled`, `job_template.created`, `job_template.updated` and `job_template.deleted`, alongside the four existing `record.*` Actions. These Actions are also listed under HRMS in `GET /events/valid-values`. Unknown Actions remain rejected. Recruitment and Hiring is the standard Module for these events; HRMS continues to accept any non-empty Module.
 
+### Training and Performance
+
+HRMS also accepts these Actions for Training (Module `Training`): `training.created`, `training.updated`, `training.rescheduled`, `training.cancelled`, `training.employee_assigned`, `training.employee_unassigned`, `training.results_marked`, `training.feedback_recorded`, `training.reminder_sent`, `training.notice_retried`, `training_material.uploaded` and `training_material.deleted`.
+
+And these for Performance (Module `Performance`): `kpi.activated`, `kpi.deactivated`, `weight_set.created`, `weight_set.updated`, `performance_period.opened`, `non_working_date.added`, `non_working_date.updated`, `non_working_date.removed`, `attendance.imported`, `attendance_day.excused`, `attendance_day.marked_absent`, `attendance.no_attendance_confirmed`, `rating.saved` and `development_need.flagged`.
+
+These 26 Actions are accepted only for Source HRMS; every other Source rejects them with 400. `Training` and `Performance` are listed under HRMS Modules in `GET /events/valid-values`, and the Action catalog there includes the new Actions. The existing `record.*`, `job_posting.*` and `job_template.*` Actions remain accepted. The metadata limits above (4096 bytes, no `password`, `token`, `secret`, `authorization`, `card` or `cvv` keys) apply unchanged.
+
+HRMS producers: `description` is stored verbatim and shown to Administrators, so never put Staff-typed free text in it. Metadata should hold ids and counts, not Staff-typed free text. One event is written per Staff action. See [the Training and Performance decision](adr/0005-hrms-training-and-performance-actions.md).
+
 Deploy this catalog before enabling the HRMS producer changes. No database migration is needed. HRMS producers should identify Staff Actors using their Portal user id with type `user` so My logs can match them; the service continues to treat Actor ids as opaque values. See [the identity and Action decision](adr/0004-hrms-audit-identity-and-actions.md).
 
 
@@ -149,3 +159,15 @@ preview to `IMS_AUDIT_LEGACY_ACTIONS=false`. Native Actions support Administrato
 Action filters and charts. Earlier compatibility events keep their `record.*`
 Actions; search by their description tag (for example `q=purchase_order.approved`).
 Do not enable native mode against a service that still accepts only `record.*`.
+
+
+### Ecommerce stock Actions
+
+The Ecommerce Source accepts `order.stock_reserved` and `order.stock_released`
+for the storefront reservation lifecycle (fjdvm/epic-crms#336 and #367). These
+are Administrator-visible stock events; they do not require a Module. Producers
+capture the Actor and Order Target and send a stable per-Order-line
+`idempotency_key`. Replaying a stock event returns the original id without
+changing its contents. The Administrator `GET /events/valid-values` catalog
+includes both Actions. IMS movement events retain their existing `record.updated`
+Action; this addition does not change IMS authentication or stock behavior.
