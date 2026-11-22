@@ -30,7 +30,7 @@ All eight Sources and their starting Actions are defined in `src/audit-events/ca
 
 Optional fields:
 
-- `module`: nonempty string, allowed only for CRMS, HRMS, POS and IMS. CRMS rejects names outside its catalog; HRMS, POS and IMS continue to accept any nonempty name. Omit or use null for events without a Module.
+- `module`: nonempty string, allowed only for CRMS, HRMS, POS and IMS. CRMS rejects names outside its catalog; HRMS, POS and IMS continue to accept any nonempty name; HRMS's standard Modules are listed in `GET /events/valid-values` and include `Training` and `Performance`. Omit or use null for events without a Module.
 - `metadata`: JSON object, at most 4096 UTF-8 bytes when JSON-serialized. Keys containing `password`, `token`, `secret`, `authorization`, `card` or `cvv` (case insensitive) anywhere, including inside arrays, return 400.
 - `ip_address`: IPv4 or IPv6 address; `user_agent` and `request_id`: nonempty strings. These fields can also be null.
 - `idempotency_key`: nonempty producer string. Retries with the same Source and key return 201 with the original `{ "id": "<uuid>" }`, even after write-key rotation, and never replace the original event. Different Sources have separate namespaces. Omission creates a new event on every request. Retries still undergo authentication and validation.
@@ -118,6 +118,16 @@ Before enabling CREOMS producers, deploy this catalog, then configure the gatewa
 ## HRMS vocabulary
 
 HRMS accepts `job_posting.created`, `job_posting.updated`, `job_posting.published`, `job_posting.closed`, `job_posting.filled`, `job_template.created`, `job_template.updated` and `job_template.deleted`, alongside the four existing `record.*` Actions. These Actions are also listed under HRMS in `GET /events/valid-values`. Unknown Actions remain rejected. Recruitment and Hiring is the standard Module for these events; HRMS continues to accept any non-empty Module.
+
+### Training and Performance
+
+HRMS also accepts these Actions for Training (Module `Training`): `training.created`, `training.updated`, `training.rescheduled`, `training.cancelled`, `training.employee_assigned`, `training.employee_unassigned`, `training.results_marked`, `training.feedback_recorded`, `training.reminder_sent`, `training.notice_retried`, `training_material.uploaded` and `training_material.deleted`.
+
+And these for Performance (Module `Performance`): `kpi.activated`, `kpi.deactivated`, `weight_set.created`, `weight_set.updated`, `performance_period.opened`, `non_working_date.added`, `non_working_date.updated`, `non_working_date.removed`, `attendance.imported`, `attendance_day.excused`, `attendance_day.marked_absent`, `attendance.no_attendance_confirmed`, `rating.saved` and `development_need.flagged`.
+
+These 26 Actions are accepted only for Source HRMS; every other Source rejects them with 400. `Training` and `Performance` are listed under HRMS Modules in `GET /events/valid-values`, and the Action catalog there includes the new Actions. The existing `record.*`, `job_posting.*` and `job_template.*` Actions remain accepted. The metadata limits above (4096 bytes, no `password`, `token`, `secret`, `authorization`, `card` or `cvv` keys) apply unchanged.
+
+HRMS producers: `description` is stored verbatim and shown to Administrators, so never put Staff-typed free text in it. Metadata should hold ids and counts, not Staff-typed free text. One event is written per Staff action. See [the Training and Performance decision](adr/0005-hrms-training-and-performance-actions.md).
 
 Deploy this catalog before enabling the HRMS producer changes. No database migration is needed. HRMS producers should identify Staff Actors using their Portal user id with type `user` so My logs can match them; the service continues to treat Actor ids as opaque values. See [the identity and Action decision](adr/0004-hrms-audit-identity-and-actions.md).
 
