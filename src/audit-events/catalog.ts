@@ -23,6 +23,44 @@ const hrmsPerformanceActions = [
 ] as const;
 
 const recordActions = ['record.created', 'record.updated', 'record.deleted', 'record.viewed'] as const;
+export const imsActions = [
+  ...recordActions,
+  'purchase_requisition.submitted',
+  'purchase_requisition.approved',
+  'purchase_requisition.rejected',
+  'purchase_order.created',
+  'purchase_order.approved',
+  'purchase_order.rejected',
+  'delivery.received',
+  'delivery.discrepancy_logged',
+  'goods_receipt.inspected',
+  'return_to_vendor.submitted',
+  'return_to_vendor.approved',
+  'return_to_vendor.rejected',
+  'stock_in.approved',
+  'stock_in.rejected',
+  'stock_in.put_away',
+  'cycle_count.reconciled',
+  'loss_report.submitted',
+  'loss_report.approved',
+  'loss_report.rejected',
+  'lot.recalled',
+  'production_request.submitted',
+  'production_request.approved',
+  'production_request.rejected',
+  'material.issued',
+  'production_batch.stage_changed',
+  'production_batch.qa_approved',
+  'production_batch.qa_rejected',
+  'stock_transfer.requested',
+  'stock_transfer.approved',
+  'stock_transfer.rejected',
+  'stock_transfer.dispatched',
+  'stock_transfer.received',
+  'ims.signed_in',
+  'ims.access_denied',
+] as const;
+
 export const actionCatalog = {
   CRMS: [
     ...recordActions,
@@ -41,7 +79,7 @@ export const actionCatalog = {
     ...hrmsTrainingActions,
     ...hrmsPerformanceActions,
   ],
-  POS: recordActions, IMS: recordActions,
+  POS: recordActions, IMS: imsActions,
   Authentication: authenticationActions,
   'File storage': ['file.uploaded', 'file.downloaded', 'file.deleted', 'file.shared'],
   Notifications: ['notification.sent', 'notification.failed'],
@@ -49,11 +87,12 @@ export const actionCatalog = {
 } as const;
 export const sources = Object.keys(actionCatalog) as Array<keyof typeof actionCatalog>;
 
-// Portal Module names plus CREOMS vocabulary; retain Campaigns for earlier events.
+// Portal Module names plus producer vocabulary; retain legacy names for earlier events.
 export const moduleCatalog: Partial<Record<keyof typeof actionCatalog, readonly string[]>> = {
   CRMS: ['Dashboard', 'Customer Profiles', 'Campaigns', 'Conversations', 'Tickets', 'Orders', 'Payments', 'Fulfilment', 'Returns', 'Marketing', 'Feedback'],
   HRMS: ['Dashboard', 'Recruitment and Hiring', 'Employee Information', 'Payroll & ESS', 'Attendance Biometrics', 'User Management', 'Training', 'Performance'],
   POS: ['Dashboard', 'Sales Processing', 'Order Management', 'Product Management/Price Configuration', 'Sales Report Analytics', 'Location/Branch Management', 'Stock Management'],
-  IMS: ['Dashboard', 'Resources & Suppliers', 'Orders & Procurement', 'Inventory Module', 'Production and Quality', 'Distribution'],
+  IMS: ['Dashboard', 'Resources & Suppliers', 'Orders & Procurement', 'Goods Receiving', 'Inventory', 'Production & Quality', 'Stock Transfer',
+    'Inventory Module', 'Production and Quality', 'Distribution'],
 };
 export const catalog = sources.map(source => ({ source, modules: moduleCatalog[source] ?? [], actions: actionCatalog[source] }));
