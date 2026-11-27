@@ -65,6 +65,7 @@ export const actionCatalog = {
   CRMS: [
     ...recordActions,
     'order.delivery_fee_quoted', 'order.confirmed', 'order.cancelled', 'order.marked_paid',
+    'order.placed', 'order.expired', 'order.email_sent', 'order.email_failed',
     'order.preparing', 'order.dispatched', 'order.delivered', 'order.delivery_photo_attached',
     'return.approved', 'return.declined', 'return.goods_received', 'return.refunded', 'return.replaced',
     'ticket.opened', 'ticket.claimed', 'ticket.released', 'ticket.status_changed', 'ticket.priority_changed',
