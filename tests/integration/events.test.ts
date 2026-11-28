@@ -488,7 +488,7 @@ test('Administrator free-text search matches description and Actor or Subject na
 });
 
 const crmsActionsByModule: Record<string, string[]> = {
-  Orders: ['order.delivery_fee_quoted', 'order.confirmed', 'order.cancelled'],
+  Orders: ['order.delivery_fee_quoted', 'order.confirmed', 'order.cancelled', 'order.placed', 'order.expired', 'order.email_sent', 'order.email_failed'],
   Payments: ['order.marked_paid'],
   Fulfilment: ['order.preparing', 'order.dispatched', 'order.delivered', 'order.delivery_photo_attached'],
   Returns: ['return.approved', 'return.declined', 'return.goods_received', 'return.refunded', 'return.replaced'],
